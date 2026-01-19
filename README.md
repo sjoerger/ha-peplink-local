@@ -35,6 +35,7 @@ This custom integration allows you to monitor and track your Peplink router from
   - Altitude Sensor (meters)
   - Heading Sensor (degrees)
 - **Device Tracking**: Tracks client devices connected to your Peplink router
+  - This fork differs from the [original integration](https://github.com/weirded/ha-peplink-local) in that clients are detected as home/not_home in Home Assistant
 - **Traffic Statistics**:
   - WAN Download (data rate sensor)
   - WAN Upload (data rate sensor)
