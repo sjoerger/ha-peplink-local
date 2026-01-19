@@ -410,7 +410,7 @@ class PeplinkAPI:
                              "name": str,          # Client name or hostname
                              "ip": str,            # IP address assigned to the client
                              "rssi": int,          # Signal strength (for wireless clients)
-                             "connected": bool,    # Always True for connected clients
+                             "active": bool,       # True if client is currently connected
                              "interface": str,     # Network interface the client is connected to
                              "vlan": str,          # VLAN the client is connected to (if applicable)
                              "ssid": str,          # Wireless SSID (for wireless clients)
@@ -437,7 +437,8 @@ class PeplinkAPI:
                         clients = response["response"]["list"]
                         for client in clients:
                             # Ensure each client has the required fields
-                            client["connected"] = True  # If it's in the list, it's connected
+                            # IMPORTANT: Preserve the 'active' field from the API
+                            # Do NOT override it - this field indicates if client is connected
                             client["mac"] = client.get("mac", "unknown")
                             client["name"] = client.get("name", client.get("hostname", "Unknown Device"))
                         
