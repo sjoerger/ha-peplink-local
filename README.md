@@ -1,3 +1,6 @@
+# THIS IS A FORK
+This is a fork of the original [ha-peplink-local](https://github.com/weirded/ha-peplink-local) integration developed by [@weirded](https://github.com/weirded)
+
 # Home Assistant Peplink Local Integration
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
@@ -6,7 +9,7 @@
 
 This custom integration allows you to monitor and track your Peplink router from Home Assistant. It uses the local Peplink API to provide sensors for WAN connections and device tracking capabilities.
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=weirded&repository=ha-peplink-local&category=integration)
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=sjoerger&repository=ha-peplink-local&category=integration)
 
 ## Features
 
@@ -52,14 +55,14 @@ This custom integration allows you to monitor and track your Peplink router from
 1. Ensure [HACS](https://hacs.xyz/) is installed in your Home Assistant instance
 2. Add this repository as a custom repository in HACS:
    - Go to HACS > Integrations > ⋮ > Custom repositories
-   - Add `https://github.com/weirded/ha-peplink-local` as a repository
+   - Add `https://github.com/sjoerger/ha-peplink-local` as a repository
    - Select "Integration" as the category
 3. Click "Install" on the Peplink Local integration
 4. Restart Home Assistant
 
 ### Manual Installation
 
-1. Download the latest release from the [GitHub repository](https://github.com/weirded/ha-peplink-local)
+1. Download the latest release from the [GitHub repository](https://github.com/sjoerger/ha-peplink-local)
 2. Extract the `custom_components/peplink_local` directory into your Home Assistant's `custom_components` directory
 3. Restart Home Assistant
 
@@ -85,12 +88,12 @@ The GPS tracking features are automatically enabled when your Peplink router has
 
 ## Contributing
 
-Contributions to improve the integration are welcome! Please feel free to submit a pull request or open an issue on the [GitHub repository](https://github.com/weirded/ha-peplink-local).
+Contributions to improve the integration are welcome! Please feel free to submit a pull request or open an issue on the [GitHub repository](https://github.com/sjoerger/ha-peplink-local).
 
 ## License
 
 This project is licensed under the Apache License 2.0 - see the LICENSE file for details.
 
-[releases-shield]: https://img.shields.io/github/release/weirded/ha-peplink-local.svg?style=for-the-badge
-[releases]: https://github.com/weirded/ha-peplink-local/releases
-[license-shield]: https://img.shields.io/github/license/weirded/ha-peplink-local.svg?style=for-the-badge
+[releases-shield]: https://img.shields.io/github/release/sjoerger/ha-peplink-local.svg?style=for-the-badge
+[releases]: https://github.com/sjoerger/ha-peplink-local/releases
+[license-shield]: https://img.shields.io/github/license/sjoerger/ha-peplink-local.svg?style=for-the-badge
