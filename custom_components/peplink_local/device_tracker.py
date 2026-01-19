@@ -55,6 +55,14 @@ async def async_setup_entry(
     else:
         _LOGGER.debug("Router does not have GPS capability - skipping GPS tracker")
     
+    # Track all known clients (including those that might go offline)
+    # We'll store known clients in hass.data to persist across updates
+    known_clients_key = f"{DOMAIN}_{entry.entry_id}_known_clients"
+    if known_clients_key not in hass.data:
+        hass.data[known_clients_key] = {}
+    
+    known_clients = hass.data[known_clients_key]
+    
     # Create a device tracker for each client
     if coordinator.data and "clients" in coordinator.data:
         _LOGGER.debug("Client data found in coordinator: %s", coordinator.data["clients"])
@@ -64,16 +72,22 @@ async def async_setup_entry(
             _LOGGER.debug("Clients found: %s", client_data["client"])
             for client in client_data["client"]:
                 if "mac" in client:
-                    _LOGGER.debug("Creating device tracker for client: %s (%s)", 
-                                 client.get("name", "Unknown"), client.get("mac"))
-                    entities.append(
-                        PeplinkClientTracker(
+                    mac = client.get("mac")
+                    client_name = client.get("name", "Unknown")
+                    
+                    # Add to known clients if not already there
+                    if mac not in known_clients:
+                        _LOGGER.debug("Creating device tracker for NEW client: %s (%s)", client_name, mac)
+                        tracker = PeplinkClientTracker(
                             coordinator,
                             entry.entry_id,
-                            client.get("name", "Unknown"),
-                            client.get("mac"),
+                            client_name,
+                            mac,
                         )
-                    )
+                        known_clients[mac] = tracker
+                        entities.append(tracker)
+                    else:
+                        _LOGGER.debug("Client %s (%s) already tracked", client_name, mac)
                 else:
                     _LOGGER.warning("Client missing MAC address: %s", client)
         else:
@@ -255,6 +269,7 @@ class PeplinkClientTracker(CoordinatorEntity, ScannerEntity):
 
     def _update_device_data(self) -> None:
         """Update device data from the coordinator."""
+        # Default to disconnected
         self._is_connected = False
         self._ip_address = None
         self._attributes = {
@@ -269,10 +284,17 @@ class PeplinkClientTracker(CoordinatorEntity, ScannerEntity):
         ):
             for client in self.coordinator.data["clients"]["client"]:
                 if client.get("mac") == self._client_mac:
-                    self._is_connected = client.get("connected", False)
+                    # Check the 'active' field - this is what indicates if client is connected
+                    # The Peplink API uses 'active: true/false' not 'connected'
+                    self._is_connected = client.get("active", False)
                     self._ip_address = client.get("ip")
                     
-                    # Add all client attributes
+                    # Add all client attributes (including 'active' for visibility)
                     for key, value in client.items():
-                        if key not in ["mac", "name", "ip", "connected"]:
+                        if key not in ["mac", "name", "ip"]:
                             self._attributes[key] = value
+                    
+                    # Log state for debugging
+                    _LOGGER.debug("Client %s (%s) - active: %s", 
+                                self._client_name, self._client_mac, self._is_connected)
+                    break
