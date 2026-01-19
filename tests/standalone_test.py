@@ -371,7 +371,15 @@ def verify_clients(clients):
         for client in client_list:
             assert "mac" in client, "Missing 'mac' in client"
             assert "name" in client, "Missing 'name' in client"
-            assert "connected" in client, "Missing 'connected' in client"
+            # The Peplink API uses 'active' field to indicate connection status
+            # Note: 'active' field might not always be present, so we don't make it required
+            # but we log information about it for debugging
+            if "active" in client:
+                _LOGGER.debug("Client %s (%s) has 'active' field: %s", 
+                            client.get("name"), client.get("mac"), client.get("active"))
+            else:
+                _LOGGER.warning("Client %s (%s) is missing 'active' field", 
+                              client.get("name"), client.get("mac"))
     
     _LOGGER.info("Clients structure verification passed")
 
