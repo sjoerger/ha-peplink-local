@@ -597,25 +597,25 @@ class PeplinkSensor(CoordinatorEntity, SensorEntity):
                 location_data = self.coordinator.data.get("location_info", {}).get("location", {})
                 if location_data and self.entity_description.value_fn:
                     value = self.entity_description.value_fn(location_data)
+            # Handle system-level bandwidth sensors
+            elif self.entity_description.key.startswith("system_") and self.entity_description.key in ["system_download_rate", "system_upload_rate"]:
+                raw_traffic_data = self.coordinator.data.get("traffic_stats", {}).get("stats", [])
+                if raw_traffic_data and self.entity_description.value_fn:
+                    # Prepare system-level traffic data
+                    system_traffic_data = {
+                        "rx_rate": 0,
+                        "tx_rate": 0,
+                    }
+                    # Sum up all WAN interfaces data
+                    for wan in raw_traffic_data:
+                        system_traffic_data["rx_rate"] += wan.get("rx_rate", 0)
+                        system_traffic_data["tx_rate"] += wan.get("tx_rate", 0)
+
+                    value = self.entity_description.value_fn(system_traffic_data)
             # Check if we need to extract from a specific data category
             elif self._sensor_data_key:
-                # Handle system-level bandwidth sensors
-                if self.entity_description.key.startswith("system_") and self.entity_description.key in ["system_download_rate", "system_upload_rate"]:
-                    raw_traffic_data = self.coordinator.data.get("traffic_stats", {}).get("stats", [])
-                    if raw_traffic_data and self.entity_description.value_fn:
-                        # Prepare system-level traffic data
-                        system_traffic_data = {
-                            "rx_rate": 0,
-                            "tx_rate": 0,
-                        }
-                        # Sum up all WAN interfaces data
-                        for wan in raw_traffic_data:
-                            system_traffic_data["rx_rate"] += wan.get("rx_rate", 0)
-                            system_traffic_data["tx_rate"] += wan.get("tx_rate", 0)
-                        
-                        value = self.entity_description.value_fn(system_traffic_data)
                 # Handle thermal sensors
-                elif self._sensor_data_key == "thermal_sensors":
+                if self._sensor_data_key == "thermal_sensors":
                     sensors = self.coordinator.data.get("thermal_sensors", {}).get("sensors", [])
                     for sensor in sensors:
                         if sensor.get("name") == self._sensor_data_id:
