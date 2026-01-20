@@ -744,8 +744,8 @@ class PeplinkWANSensor(CoordinatorEntity, SensorEntity):
             
             # If we have uptime, calculate rounded value
             if current_uptime is not None:
-                # Round to nearest 5 minutes (300 seconds)
-                rounded_uptime = (current_uptime // 300) * 300
+                # Round to nearest 30 minutes (1800 seconds)
+                rounded_uptime = (current_uptime // 1800) * 1800
                 
                 # Only recalculate timestamp if rounded uptime changed
                 if rounded_uptime != self._cached_rounded_uptime:
