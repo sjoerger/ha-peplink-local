@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 import logging
 from typing import Any, Callable
 import datetime
@@ -35,23 +36,12 @@ from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
 )
 from homeassistant.util import dt as dt_util
-from homeassistant.util.variance import ignore_variance
 from homeassistant.config_entries import ConfigEntry
 
 from . import PeplinkDataUpdateCoordinator
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
-
-
-def uptime_to_datetime(uptime_seconds: int) -> datetime.datetime:
-    """Convert uptime seconds to datetime timestamp."""
-    return dt_util.utcnow().replace(microsecond=0) - datetime.timedelta(seconds=uptime_seconds)
-
-
-# Wrap the uptime conversion with ignore_variance to prevent constant timestamp updates
-# Only recalculate if uptime changes by more than 5 minutes (indicating a reconnection)
-uptime_to_stable_datetime = ignore_variance(uptime_to_datetime, datetime.timedelta(minutes=5))
 
 
 @dataclass
@@ -208,13 +198,9 @@ SENSOR_TYPES: tuple[PeplinkSensorEntityDescription, ...] = (
         native_unit_of_measurement=None,
         device_class=SensorDeviceClass.TIMESTAMP,
         state_class=None,
-        # Use the stable datetime function to prevent constant timestamp updates
-        # Only recalculates when uptime changes by more than 5 minutes
-        value_fn=lambda x: (
-            uptime_to_stable_datetime(x.get("uptime"))
-            if x.get("uptime") is not None
-            else None
-        ),
+        # Timestamp calculation is handled in PeplinkWANSensor.native_value with caching
+        # to prevent constant updates while still detecting reconnections
+        value_fn=None,  # Not used for this sensor
         icon="mdi:clock-start",
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
@@ -483,10 +469,16 @@ async def async_setup_entry(
                         
                 # Handle uptime - if available in data
                 if "uptime" in wan_connection:
+                    _LOGGER.debug(
+                        "Creating up_since sensor for WAN %s (uptime=%s)",
+                        wan_id,
+                        wan_connection.get("uptime")
+                    )
                     uptime_description = next(
                         (d for d in SENSOR_TYPES if d.key == "wan_up_since"), None
                     )
                     if uptime_description:
+                        _LOGGER.debug("Found wan_up_since description in SENSOR_TYPES")
                         sensor_description = PeplinkSensorEntityDescription(
                             key=uptime_description.key.replace("wan_", ""),
                             translation_key=uptime_description.translation_key,
@@ -497,6 +489,11 @@ async def async_setup_entry(
                             icon=uptime_description.icon,
                             value_fn=uptime_description.value_fn,
                         )
+                        _LOGGER.debug(
+                            "Creating PeplinkWANSensor with key=%s for WAN %s",
+                            sensor_description.key,
+                            wan_id
+                        )
                         entities.append(
                             PeplinkWANSensor(
                                 coordinator=coordinator,
@@ -506,6 +503,11 @@ async def async_setup_entry(
                                 wan_id=wan_id,
                             )
                         )
+                        _LOGGER.debug("Successfully created up_since sensor for WAN %s", wan_id)
+                    else:
+                        _LOGGER.warning("Could not find wan_up_since in SENSOR_TYPES!")
+                else:
+                    _LOGGER.debug("No uptime in wan_connection for WAN %s", wan_id)
 
     # Add GPS location sensors
     location_info = coordinator.data.get("location_info", {})
@@ -663,6 +665,7 @@ class PeplinkWANSensor(CoordinatorEntity, SensorEntity):
 
     entity_description: PeplinkSensorEntityDescription
     _attr_has_entity_name = True
+    _attr_force_update = False  # Don't force state updates when value hasn't changed
 
     def __init__(
         self,
@@ -681,7 +684,12 @@ class PeplinkWANSensor(CoordinatorEntity, SensorEntity):
         self._initial_sensor_data = sensor_data
         
         # Use device name as the prefix for consistent entity IDs
-        self._attr_unique_id = f"{coordinator.device_name or coordinator.host}_wan{wan_id}_{description.key}"
+        # Add version suffix for wan_up_since to force recreation with caching support
+        base_unique_id = f"{coordinator.device_name or coordinator.host}_wan{wan_id}_{description.key}"
+        if description.key == "up_since":
+            self._attr_unique_id = f"{base_unique_id}_v2"
+        else:
+            self._attr_unique_id = base_unique_id
         
         # Use the device name from API if available, otherwise fallback to IP
         device_name = coordinator.device_name or f"Peplink {coordinator.host}"
@@ -696,6 +704,11 @@ class PeplinkWANSensor(CoordinatorEntity, SensorEntity):
                 "dns": sensor_data.get("dns", []),
                 "mask": sensor_data.get("mask"),
             }
+        
+        # Cache for wan_up_since to prevent constant updates
+        self._cached_up_since = None
+        self._cached_up_since_iso = None  # Store ISO string for comparison
+        self._cached_rounded_uptime = None
             
         # Set custom icon if provided
         if description.icon:
@@ -704,13 +717,75 @@ class PeplinkWANSensor(CoordinatorEntity, SensorEntity):
     @property
     def native_value(self):
         """Return the state of the sensor."""
+        # Special handling for wan_up_since to prevent constant updates
+        # This must come BEFORE the value_fn check since wan_up_since has value_fn=None
+        if self.entity_description.key == "up_since":
+            # Get current uptime
+            current_uptime = None
+            if self.coordinator.data:
+                try:
+                    wan_status = self.coordinator.data.get("wan_status", {})
+                    connections = wan_status.get("connection", [])
+                    for connection in connections:
+                        if str(connection.get("id", "")) == self._wan_id:
+                            current_uptime = connection.get("uptime")
+                            break
+                except Exception as e:
+                    _LOGGER.error(
+                        "WAN %s up_since: Exception getting uptime: %s",
+                        self._wan_id,
+                        e,
+                        exc_info=True
+                    )
+            
+            # Fallback to initial data if not found
+            if current_uptime is None:
+                current_uptime = self._initial_sensor_data.get("uptime")
+            
+            # If we have uptime, calculate rounded value
+            if current_uptime is not None:
+                # Round to nearest 30 minutes (1800 seconds)
+                rounded_uptime = (current_uptime // 1800) * 1800
+                
+                # Only recalculate timestamp if rounded uptime changed
+                if rounded_uptime != self._cached_rounded_uptime:
+                    # Calculate timestamp ONCE and cache it
+                    new_timestamp = dt_util.utcnow().replace(microsecond=0) - datetime.timedelta(
+                        seconds=rounded_uptime
+                    )
+                    new_timestamp_iso = new_timestamp.isoformat()
+                    
+                    _LOGGER.debug(
+                        "WAN %s up_since: Rounded uptime changed from %s to %s, new timestamp %s",
+                        self._wan_id,
+                        self._cached_rounded_uptime,
+                        rounded_uptime,
+                        new_timestamp_iso
+                    )
+                    
+                    self._cached_rounded_uptime = rounded_uptime
+                    self._cached_up_since = new_timestamp
+                    self._cached_up_since_iso = new_timestamp_iso
+                else:
+                    _LOGGER.debug(
+                        "WAN %s up_since: Rounded uptime unchanged (%s), returning cached timestamp %s (id=%s)",
+                        self._wan_id,
+                        rounded_uptime,
+                        self._cached_up_since_iso,
+                        id(self._cached_up_since)
+                    )
+                
+                return self._cached_up_since
+            
+            return None
+
+        # For all other sensors, check if value_fn exists
         if self.entity_description.value_fn is None:
             return None
 
         # Check if we're dealing with traffic rate sensors
         is_traffic_sensor = self.entity_description.key in ["download_rate", "upload_rate"]
         
-        # Try to get fresh data from coordinator
         if self.coordinator.data:
             try:
                 if is_traffic_sensor:
