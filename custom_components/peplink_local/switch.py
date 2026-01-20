@@ -131,7 +131,7 @@ class PeplinkWANSwitch(CoordinatorEntity, SwitchEntity):
         _LOGGER.debug("Switch unique_id: %s", self._attr_unique_id)
         
         # Set name and icon
-        self._attr_name = "Enabled"
+        self._attr_name = "WAN Enabled"
         self._attr_icon = "mdi:wan"
         
         # Track state
