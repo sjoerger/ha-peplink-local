@@ -30,5 +30,5 @@ Add any other context, screenshots, or examples about the feature request here.
 
 ## Checklist
 - [ ] I have checked existing issues for similar requests
-- [ ] This feature is relevant to the Inseego M3000 integration
+- [ ] This feature is relevant to the Peplink Local integration
 - [ ] I have provided a clear use case
