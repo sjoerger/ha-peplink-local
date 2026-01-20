@@ -35,12 +35,23 @@ from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
 )
 from homeassistant.util import dt as dt_util
+from homeassistant.util.variance import ignore_variance
 from homeassistant.config_entries import ConfigEntry
 
 from . import PeplinkDataUpdateCoordinator
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def uptime_to_datetime(uptime_seconds: int) -> datetime.datetime:
+    """Convert uptime seconds to datetime timestamp."""
+    return dt_util.utcnow().replace(microsecond=0) - datetime.timedelta(seconds=uptime_seconds)
+
+
+# Wrap the uptime conversion with ignore_variance to prevent constant timestamp updates
+# Only recalculate if uptime changes by more than 5 minutes (indicating a reconnection)
+uptime_to_stable_datetime = ignore_variance(uptime_to_datetime, datetime.timedelta(minutes=5))
 
 
 @dataclass
@@ -197,9 +208,10 @@ SENSOR_TYPES: tuple[PeplinkSensorEntityDescription, ...] = (
         native_unit_of_measurement=None,
         device_class=SensorDeviceClass.TIMESTAMP,
         state_class=None,
-        # Calculate the "up since" timestamp by subtracting uptime from current time
+        # Use the stable datetime function to prevent constant timestamp updates
+        # Only recalculates when uptime changes by more than 5 minutes
         value_fn=lambda x: (
-            dt_util.utcnow() - datetime.timedelta(seconds=x.get("uptime"))
+            uptime_to_stable_datetime(x.get("uptime"))
             if x.get("uptime") is not None
             else None
         ),
@@ -721,11 +733,12 @@ class PeplinkWANSensor(CoordinatorEntity, SensorEntity):
                                     "dns": connection.get("dns", []),
                                     "mask": connection.get("mask"),
                                 }
+                            
                             return self.entity_description.value_fn(connection)
             except Exception:
                 # If anything goes wrong, fall back to initial data
                 pass
-                
+        
         # Fall back to initial sensor data
         return self.entity_description.value_fn(self._initial_sensor_data)
         
