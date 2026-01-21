@@ -44,7 +44,7 @@ This custom integration allows you to monitor and track your Peplink router from
 - **Configurable Polling**: Adjust how frequently the integration polls your router (default: 5 seconds)
 
 - **WAN Interface Control**:
-  - Each WAN interface now has a switch to enable/disable. Useful in automations
+  - Each WAN interface now has a [switch](WAN_SWITCHES.md) to enable/disable. Useful in automations
 
 ## Requirements
 
