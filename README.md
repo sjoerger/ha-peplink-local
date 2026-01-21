@@ -42,9 +42,8 @@ This custom integration allows you to monitor and track your Peplink router from
   - Total Download (data rate sensor)
   - Total Upload (data rate sensor)
 - **Configurable Polling**: Adjust how frequently the integration polls your router (default: 5 seconds)
-
-- **WAN Interface Control**:
-  - Each WAN interface now has a [switch](WAN_SWITCHES.md) to enable/disable. Useful in automations
+- **WAN Interface Controls**:
+  - Each WAN interface now has a [switch](WAN_SWITCHES.md) to enable/disable. [Added in v0.1.0]
 
 ## Requirements
 
