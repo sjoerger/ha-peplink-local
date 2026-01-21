@@ -114,27 +114,3 @@ With payload:
 2. **Config Apply**: The router may require config apply after changing WAN state
 3. **Reconnection Time**: Disabling/enabling a WAN may take 5-30 seconds to fully take effect
 4. **Active Connections**: Disabling a WAN will drop all active connections on that interface
-
-## Troubleshooting
-
-### Switch doesn't respond
-- Check that your Peplink user has write permissions
-- Check logs for API errors: `grep "switch.peplink" home-assistant.log`
-
-### State doesn't update immediately
-- This is normal - the coordinator updates every 5-7 seconds
-- The switch will show the new state on the next coordinator update
-
-### "Failed to enable/disable WAN" error
-- Check router logs for configuration errors
-- Verify the WAN ID exists and is configurable
-- Some WANs may be locked or managed by InControl
-
-## Future Enhancements
-
-Potential future additions:
-- Priority adjustment switches/selectors
-- Connection method selectors
-- Bandwidth limit controls
-- Health check enable/disable
-- SIM card selection (for cellular WANs)
