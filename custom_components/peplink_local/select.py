@@ -105,11 +105,11 @@ class WanPrioritySelect(CoordinatorEntity, SelectEntity):
         api = self.coordinator.api
         payload = {
             "action": "update",
-            "list": [{"id": int(self._wan_id), "priority": api_value}],
+            "list": [{"connId": int(self._wan_id), "priority": api_value}],
         }
 
         response = await api._make_api_request(
-            "config.wan.connection",
+            "config.wan.connection.priority",
             method="POST",
             data=payload,
             public_api=True,
