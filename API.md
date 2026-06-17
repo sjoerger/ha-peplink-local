@@ -479,6 +479,46 @@ Example response:
 }
 ```
 
+##### Setting WAN enabled/disabled
+
+```
+POST /api/config.wan.connection
+```
+
+```json
+{
+  "action": "update",
+  "list": [{"id": 2, "enable": true}]
+}
+```
+
+Followed by:
+
+```
+POST /api/cmd.config.apply
+```
+
+(empty body `{}`) to commit the change.
+
+##### Setting WAN priority
+
+```
+POST /api/config.wan.connection.priority
+```
+
+```json
+{
+  "action": "update",
+  "list": [{"connId": 2, "priority": 1}]
+}
+```
+
+Priority values: `1` = Priority 1 (Highest), `2` = Priority 2, `3` = Priority 3, `0` = Disabled.
+
+Note: the identifier field is `connId` (not `id`) for this endpoint.
+
+Followed by `POST /api/cmd.config.apply` to commit.
+
 ### Unofficial APIs 
 
 - Can use same authentication. 

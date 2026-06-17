@@ -136,6 +136,19 @@ async def async_setup_entry(
             )
         )
 
+    # Add health check binary sensors for WANs that appear in health check data
+    wan_health_check = coordinator.data.get("wan_health_check", {})
+    for wan_id, hc_data in wan_health_check.items():
+        wan_name = hc_data.get("name", f"WAN {wan_id}")
+        device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"{coordinator.config_entry.entry_id}_wan{wan_id}")},
+            manufacturer="Peplink",
+            model="WAN Connection",
+            name=f"{coordinator.device_name or 'Peplink'} WAN{wan_id}",
+            via_device=(DOMAIN, coordinator.config_entry.entry_id),
+        )
+        entities.append(WanHealthCheckBinarySensor(coordinator, wan_id, wan_name, device_info))
+
     async_add_entities(entities)
 
 
@@ -249,3 +262,31 @@ class PeplinkPepVPNPeerBinarySensor(CoordinatorEntity, BinarySensorEntity):
         if peer is None:
             return None
         return peer.get("status") == "CONNECTED"
+
+
+class WanHealthCheckBinarySensor(CoordinatorEntity, BinarySensorEntity):
+    """Binary sensor for WAN logical health check result (PASS/FAIL)."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Health Check"
+    _attr_icon = "mdi:heart-pulse"
+
+    def __init__(self, coordinator, wan_id: str, wan_name: str, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator)
+        self._wan_id = wan_id
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_wan{wan_id}_health_check"
+        self._attr_device_info = device_info
+
+    def _hc_data(self) -> dict:
+        return self.coordinator.data.get("wan_health_check", {}).get(self._wan_id, {})
+
+    @property
+    def is_on(self) -> bool | None:
+        data = self._hc_data()
+        if not data:
+            return None
+        return data.get("result") == 1
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.last_update_success and bool(self._hc_data())

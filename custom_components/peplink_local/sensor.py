@@ -640,6 +640,19 @@ async def async_setup_entry(
     else:
         _LOGGER.debug("Router does not have GPS capability - skipping GPS sensors")
 
+    # Add health check reliability sensors
+    wan_health_check = coordinator.data.get("wan_health_check", {})
+    for wan_id, hc_data in wan_health_check.items():
+        wan_name = hc_data.get("name", f"WAN {wan_id}")
+        device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"{coordinator.config_entry.entry_id}_wan{wan_id}")},
+            manufacturer="Peplink",
+            model="WAN Connection",
+            name=f"{coordinator.device_name or 'Peplink'} WAN{wan_id}",
+            via_device=(DOMAIN, coordinator.config_entry.entry_id),
+        )
+        entities.append(WanHealthCheckReliabilitySensor(coordinator, wan_id, wan_name, device_info))
+
     # Add all entities
     async_add_entities(entities)
 
@@ -1056,3 +1069,34 @@ def _translate_wan_type(wan_type: str) -> str:
     }
     
     return type_map.get(wan_type.lower(), wan_type)
+
+
+class WanHealthCheckReliabilitySensor(CoordinatorEntity, SensorEntity):
+    """Sensor showing percentage of recent WAN health check probes that passed."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Health Check Reliability"
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:percent"
+
+    def __init__(self, coordinator, wan_id: str, wan_name: str, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator)
+        self._wan_id = wan_id
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_wan{wan_id}_hc_reliability"
+        self._attr_device_info = device_info
+
+    def _hc_data(self) -> dict:
+        return self.coordinator.data.get("wan_health_check", {}).get(self._wan_id, {})
+
+    @property
+    def native_value(self) -> float | None:
+        h = self._hc_data().get("h", [])
+        if not h:
+            return None
+        return round(sum(h) / len(h) * 100, 1)
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.last_update_success and bool(self._hc_data())
+
