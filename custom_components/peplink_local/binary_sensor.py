@@ -36,7 +36,7 @@ BINARY_SENSOR_TYPES: tuple[PeplinkBinarySensorEntityDescription, ...] = (
         translation_key=None,
         name="Connection Status",
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
-        value_fn=lambda x: x.get("message", "").startswith("Connected"),
+        value_fn=lambda x: x.get("message", "").startswith("Connected") or x.get("message", "") == "Standby",
         icon="mdi:network",
     ),
 )
