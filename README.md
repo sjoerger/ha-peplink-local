@@ -34,11 +34,21 @@ This custom integration allows you to monitor and track your Peplink router from
   - Speed Sensor (meters per second)
   - Altitude Sensor (meters)
   - Heading Sensor (degrees)
+- **Wi-Fi AP** (for routers with a built-in AP):
+  - AP Enabled binary sensor on the main router device
+  - Per-SSID virtual devices, each with:
+    - Active binary sensor (is the SSID broadcasting?)
+    - Client Count sensor
+    - AP Count sensor (diagnostic)
+    - Download Rate / Upload Rate sensors (kbps)
+    - Security sensor (diagnostic)
 - **Device Tracking**: Tracks client devices connected to your Peplink router
   - This fork differs from the [original integration](https://github.com/weirded/ha-peplink-local) in that clients are detected as home/not_home in Home Assistant
   - Entities are keyed by device **name** (DHCP hostname), not MAC address — MAC rotation (common on Apple Watch and iPhone) is handled transparently without creating duplicate entities
   - Devices that go offline are shown as `not_home` rather than disappearing; they reappear as `home` when they reconnect
   - New devices are automatically detected during polling without requiring a restart
+  - **Wi-Fi clients** appear under their associated SSID device with additional attributes: RSSI, frequency, Wi-Fi mode, Wi-Fi generation, and SSID name
+  - **Ethernet clients** appear under the main router device
 - **Traffic Statistics**:
   - WAN Download (data rate sensor)
   - WAN Upload (data rate sensor)
