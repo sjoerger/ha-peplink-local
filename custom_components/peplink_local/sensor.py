@@ -509,72 +509,48 @@ async def async_setup_entry(
                 else:
                     _LOGGER.debug("No uptime in wan_connection for WAN %s", wan_id)
 
-    # Add PepVPN profile and peer sensors
+    # Add SpeedFusion Connect / PepVPN peer sensors
     pepvpn_status = coordinator.data.get("pepvpn_status", {})
-    pepvpn_profiles = pepvpn_status.get("profiles", [])
     pepvpn_peers = pepvpn_status.get("peers", [])
 
     device_name_prefix = coordinator.device_name or f"Peplink {coordinator.host}"
 
-    for profile in pepvpn_profiles:
-        profile_id = profile["id"]
-        profile_device = DeviceInfo(
-            identifiers={(DOMAIN, f"{coordinator.config_entry.entry_id}_pepvpn_profile_{profile_id}")},
-            manufacturer="Peplink",
-            model="SpeedFusion VPN Profile",
-            name=f"{device_name_prefix} {profile['name']}",
-            via_device=(DOMAIN, coordinator.config_entry.entry_id),
-        )
-
-        for key, name, icon in [
-            ("status", "Status", "mdi:vpn"),
-            ("type", "Type", "mdi:information-outline"),
-        ]:
-            entities.append(
-                PeplinkPepVPNProfileSensor(
-                    coordinator=coordinator,
-                    description=PeplinkSensorEntityDescription(
-                        key=f"pepvpn_profile_{profile_id}_{key}",
-                        name=name,
-                        icon=icon,
-                        value_fn=lambda p, k=key: p.get(k),
-                    ),
-                    profile_id=profile_id,
-                    device_info=profile_device,
-                )
+    # Build parent device per unique profile_id.
+    # profileId >= 60000 is a virtual SFC profile; lower IDs are real PepVPN profiles.
+    _pepvpn_parent_devices: dict[str, DeviceInfo] = {}
+    for peer in pepvpn_peers:
+        pid = peer.get("profile_id", "")
+        if pid and pid not in _pepvpn_parent_devices:
+            try:
+                is_sfc = int(pid) >= 60000
+            except ValueError:
+                is_sfc = False
+            _pepvpn_parent_devices[pid] = DeviceInfo(
+                identifiers={(DOMAIN, f"{coordinator.config_entry.entry_id}_pepvpn_profile_{pid}")},
+                manufacturer="Peplink",
+                model="SpeedFusion Connect" if is_sfc else "SpeedFusion VPN Profile",
+                name=f"{device_name_prefix} SpeedFusion Connect" if is_sfc else f"{device_name_prefix} VPN Profile {pid}",
+                via_device=(DOMAIN, coordinator.config_entry.entry_id),
             )
-
-        entities.append(
-            PeplinkPepVPNProfileSensor(
-                coordinator=coordinator,
-                description=PeplinkSensorEntityDescription(
-                    key=f"pepvpn_profile_{profile_id}_peer_count",
-                    name="Peer Count",
-                    icon="mdi:account-multiple",
-                    state_class=SensorStateClass.MEASUREMENT,
-                    value_fn=lambda p: p.get("peer_count"),
-                ),
-                profile_id=profile_id,
-                device_info=profile_device,
-            )
-        )
 
     for peer in pepvpn_peers:
         peer_id = peer["peer_id"]
         profile_id = peer["profile_id"]
         peer_name = peer.get("name") or peer.get("serial_number") or f"Peer {peer_id}"
+        parent_device = _pepvpn_parent_devices.get(profile_id)
 
         peer_device = DeviceInfo(
             identifiers={(DOMAIN, f"{coordinator.config_entry.entry_id}_pepvpn_peer_{peer_id}")},
             manufacturer="Peplink",
-            model="SpeedFusion VPN Peer",
+            model="SpeedFusion Connect Peer",
             name=f"{device_name_prefix} {peer_name}",
-            via_device=(DOMAIN, f"{coordinator.config_entry.entry_id}_pepvpn_profile_{profile_id}"),
+            via_device=(DOMAIN, f"{coordinator.config_entry.entry_id}_pepvpn_profile_{profile_id}") if parent_device else (DOMAIN, coordinator.config_entry.entry_id),
         )
 
         for key, name, icon in [
             ("status", "Status", "mdi:vpn"),
             ("type", "Type", "mdi:information-outline"),
+            ("wan_smoothing", "WAN Smoothing", "mdi:sine-wave"),
         ]:
             entities.append(
                 PeplinkPepVPNPeerSensor(
@@ -584,6 +560,26 @@ async def async_setup_entry(
                         name=name,
                         icon=icon,
                         value_fn=lambda p, k=key: p.get(k),
+                    ),
+                    peer_id=peer_id,
+                    device_info=peer_device,
+                )
+            )
+
+        for field, name, unit, icon, state_cls in [
+            ("bandwidth_limit_upload", "Bandwidth Limit Upload", "kbps", "mdi:upload", SensorStateClass.MEASUREMENT),
+            ("bandwidth_limit_download", "Bandwidth Limit Download", "kbps", "mdi:download", SensorStateClass.MEASUREMENT),
+        ]:
+            entities.append(
+                PeplinkPepVPNPeerSensor(
+                    coordinator=coordinator,
+                    description=PeplinkSensorEntityDescription(
+                        key=f"pepvpn_peer_{peer_id}_{field}",
+                        name=name,
+                        native_unit_of_measurement=unit,
+                        state_class=state_cls,
+                        icon=icon,
+                        value_fn=lambda p, f=field: p.get(f),
                     ),
                     peer_id=peer_id,
                     device_info=peer_device,

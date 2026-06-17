@@ -87,35 +87,44 @@ async def async_setup_entry(
                 )
             )
     
-    # Add PepVPN profile and peer connectivity binary sensors
+    # Add SpeedFusion Connect / PepVPN connectivity binary sensors
     pepvpn_status = coordinator.data.get("pepvpn_status", {})
+    pepvpn_peers = pepvpn_status.get("peers", [])
     device_name_prefix = coordinator.device_name or f"Peplink {coordinator.host}"
 
-    for profile in pepvpn_status.get("profiles", []):
-        profile_id = profile["id"]
-        profile_device = DeviceInfo(
-            identifiers={(DOMAIN, f"{coordinator.config_entry.entry_id}_pepvpn_profile_{profile_id}")},
-            manufacturer="Peplink",
-            model="SpeedFusion VPN Profile",
-            name=f"{device_name_prefix} {profile['name']}",
-            via_device=(DOMAIN, coordinator.config_entry.entry_id),
-        )
-        entities.append(
-            PeplinkPepVPNProfileBinarySensor(
-                coordinator=coordinator,
-                profile_id=profile_id,
-                device_info=profile_device,
+    # Build parent device per unique profile_id and add an aggregate connected sensor to each
+    _pepvpn_parent_devices: dict[str, DeviceInfo] = {}
+    for peer in pepvpn_peers:
+        pid = peer.get("profile_id", "")
+        if pid and pid not in _pepvpn_parent_devices:
+            try:
+                is_sfc = int(pid) >= 60000
+            except ValueError:
+                is_sfc = False
+            parent_device = DeviceInfo(
+                identifiers={(DOMAIN, f"{coordinator.config_entry.entry_id}_pepvpn_profile_{pid}")},
+                manufacturer="Peplink",
+                model="SpeedFusion Connect" if is_sfc else "SpeedFusion VPN Profile",
+                name=f"{device_name_prefix} SpeedFusion Connect" if is_sfc else f"{device_name_prefix} VPN Profile {pid}",
+                via_device=(DOMAIN, coordinator.config_entry.entry_id),
             )
-        )
+            _pepvpn_parent_devices[pid] = parent_device
+            entities.append(
+                PeplinkPepVPNProfileBinarySensor(
+                    coordinator=coordinator,
+                    profile_id=pid,
+                    device_info=parent_device,
+                )
+            )
 
-    for peer in pepvpn_status.get("peers", []):
+    for peer in pepvpn_peers:
         peer_id = peer["peer_id"]
         profile_id = peer["profile_id"]
         peer_name = peer.get("name") or peer.get("serial_number") or f"Peer {peer_id}"
         peer_device = DeviceInfo(
             identifiers={(DOMAIN, f"{coordinator.config_entry.entry_id}_pepvpn_peer_{peer_id}")},
             manufacturer="Peplink",
-            model="SpeedFusion VPN Peer",
+            model="SpeedFusion Connect Peer",
             name=f"{device_name_prefix} {peer_name}",
             via_device=(DOMAIN, f"{coordinator.config_entry.entry_id}_pepvpn_profile_{profile_id}"),
         )
@@ -200,18 +209,13 @@ class PeplinkPepVPNProfileBinarySensor(CoordinatorEntity, BinarySensorEntity):
         self._attr_unique_id = f"{coordinator.config_entry.entry_id}_pepvpn_profile_{profile_id}_connected"
         self._attr_device_info = device_info
 
-    def _current_profile(self) -> dict | None:
-        for profile in self.coordinator.data.get("pepvpn_status", {}).get("profiles", []):
-            if profile["id"] == self._profile_id:
-                return profile
-        return None
-
     @property
     def is_on(self) -> bool | None:
-        profile = self._current_profile()
-        if profile is None:
+        peers = self.coordinator.data.get("pepvpn_status", {}).get("peers", [])
+        profile_peers = [p for p in peers if p.get("profile_id") == self._profile_id]
+        if not profile_peers:
             return None
-        return profile.get("status") == "CONNECTED"
+        return any(p.get("status") == "CONNECTED" for p in profile_peers)
 
 
 class PeplinkPepVPNPeerBinarySensor(CoordinatorEntity, BinarySensorEntity):
