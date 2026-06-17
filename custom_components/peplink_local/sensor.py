@@ -653,6 +653,26 @@ async def async_setup_entry(
         )
         entities.append(WanHealthCheckReliabilitySensor(coordinator, wan_id, wan_name, device_info))
 
+    # Add per-SSID (VAP) sensors
+    device_name_prefix = coordinator.device_name or f"Peplink {coordinator.host}"
+    vap_summary = coordinator.data.get("vap_summary", {})
+    for vap_id, vap_data in vap_summary.items():
+        ssid = vap_data.get("ssid", f"VAP {vap_id}")
+        vap_device = DeviceInfo(
+            identifiers={(DOMAIN, f"{coordinator.config_entry.entry_id}_vap{vap_id}")},
+            manufacturer="Peplink",
+            model="Wi-Fi SSID",
+            name=f"{device_name_prefix} {ssid}",
+            via_device=(DOMAIN, coordinator.config_entry.entry_id),
+        )
+        entities.extend([
+            VapClientCountSensor(coordinator, vap_id, vap_device),
+            VapApCountSensor(coordinator, vap_id, vap_device),
+            VapDownloadRateSensor(coordinator, vap_id, vap_device),
+            VapUploadRateSensor(coordinator, vap_id, vap_device),
+            VapSecuritySensor(coordinator, vap_id, vap_device),
+        ])
+
     # Add all entities
     async_add_entities(entities)
 
@@ -1100,3 +1120,110 @@ class WanHealthCheckReliabilitySensor(CoordinatorEntity, SensorEntity):
     def available(self) -> bool:
         return self.coordinator.last_update_success and bool(self._hc_data())
 
+
+class _VapSensorBase(CoordinatorEntity, SensorEntity):
+    """Shared base for all per-SSID (VAP) sensors."""
+
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator, vap_id: str, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator)
+        self._vap_id = vap_id
+        self._attr_device_info = device_info
+
+    def _vap_data(self) -> dict:
+        return self.coordinator.data.get("vap_summary", {}).get(self._vap_id, {})
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.last_update_success and bool(self._vap_data())
+
+
+class VapClientCountSensor(_VapSensorBase):
+    """Number of clients connected to this SSID."""
+
+    _attr_name = "Connected Clients"
+    _attr_icon = "mdi:account-multiple"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = None
+
+    def __init__(self, coordinator, vap_id: str, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator, vap_id, device_info)
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_vap{vap_id}_clients"
+
+    @property
+    def native_value(self) -> int | None:
+        return self._vap_data().get("station")
+
+
+class VapApCountSensor(_VapSensorBase):
+    """Number of APs broadcasting this SSID."""
+
+    _attr_name = "AP Count"
+    _attr_icon = "mdi:access-point"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, vap_id: str, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator, vap_id, device_info)
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_vap{vap_id}_ap_count"
+
+    @property
+    def native_value(self) -> int | None:
+        return self._vap_data().get("ap")
+
+
+class VapDownloadRateSensor(_VapSensorBase):
+    """Current download rate for this SSID in kbps."""
+
+    _attr_name = "Download Rate"
+    _attr_icon = "mdi:download"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfDataRate.KILOBITS_PER_SECOND
+
+    def __init__(self, coordinator, vap_id: str, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator, vap_id, device_info)
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_vap{vap_id}_download_rate"
+
+    @property
+    def native_value(self) -> float | None:
+        rx = self._vap_data().get("rx_byte")
+        if rx is None:
+            return None
+        return round(rx / 60 * 8 / 1000, 2)
+
+
+class VapUploadRateSensor(_VapSensorBase):
+    """Current upload rate for this SSID in kbps."""
+
+    _attr_name = "Upload Rate"
+    _attr_icon = "mdi:upload"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfDataRate.KILOBITS_PER_SECOND
+
+    def __init__(self, coordinator, vap_id: str, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator, vap_id, device_info)
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_vap{vap_id}_upload_rate"
+
+    @property
+    def native_value(self) -> float | None:
+        tx = self._vap_data().get("tx_byte")
+        if tx is None:
+            return None
+        return round(tx / 60 * 8 / 1000, 2)
+
+
+class VapSecuritySensor(_VapSensorBase):
+    """Security policy configured on this SSID."""
+
+    _attr_name = "Security Policy"
+    _attr_icon = "mdi:shield-lock"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, vap_id: str, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator, vap_id, device_info)
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_vap{vap_id}_security"
+
+    @property
+    def native_value(self) -> str | None:
+        return self._vap_data().get("security")

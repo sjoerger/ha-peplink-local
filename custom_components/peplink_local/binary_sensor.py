@@ -149,6 +149,24 @@ async def async_setup_entry(
         )
         entities.append(WanHealthCheckBinarySensor(coordinator, wan_id, wan_name, device_info))
 
+    # Add AP-level binary sensor if the device supports an AP
+    ap_status = coordinator.data.get("ap_status", {})
+    if ap_status.get("support"):
+        entities.append(ApEnabledBinarySensor(coordinator))
+
+    # Add per-SSID active binary sensor for each VAP
+    vap_summary = coordinator.data.get("vap_summary", {})
+    for vap_id, vap_data in vap_summary.items():
+        ssid = vap_data.get("ssid", f"VAP {vap_id}")
+        vap_device = DeviceInfo(
+            identifiers={(DOMAIN, f"{coordinator.config_entry.entry_id}_vap{vap_id}")},
+            manufacturer="Peplink",
+            model="Wi-Fi SSID",
+            name=f"{device_name_prefix} {ssid}",
+            via_device=(DOMAIN, coordinator.config_entry.entry_id),
+        )
+        entities.append(VapActiveBinarySensor(coordinator, vap_id, vap_device))
+
     async_add_entities(entities)
 
 
@@ -290,3 +308,56 @@ class WanHealthCheckBinarySensor(CoordinatorEntity, BinarySensorEntity):
     @property
     def available(self) -> bool:
         return self.coordinator.last_update_success and bool(self._hc_data())
+
+
+class ApEnabledBinarySensor(CoordinatorEntity, BinarySensorEntity):
+    """Binary sensor showing whether the router's built-in AP is enabled."""
+
+    _attr_has_entity_name = True
+    _attr_name = "AP Enabled"
+    _attr_icon = "mdi:wifi"
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_ap_enabled"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, coordinator.config_entry.entry_id)},
+        )
+
+    @property
+    def is_on(self) -> bool | None:
+        return self.coordinator.data.get("ap_status", {}).get("enable")
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.last_update_success and bool(
+            self.coordinator.data.get("ap_status")
+        )
+
+
+class VapActiveBinarySensor(CoordinatorEntity, BinarySensorEntity):
+    """Binary sensor showing whether a Wi-Fi SSID (VAP) is actively broadcasting."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Active"
+    _attr_icon = "mdi:wifi"
+
+    def __init__(self, coordinator, vap_id: str, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator)
+        self._vap_id = vap_id
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_vap{vap_id}_active"
+        self._attr_device_info = device_info
+
+    def _vap_data(self) -> dict:
+        return self.coordinator.data.get("vap_summary", {}).get(self._vap_id, {})
+
+    @property
+    def is_on(self) -> bool | None:
+        data = self._vap_data()
+        if not data:
+            return None
+        return data.get("active", False)
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.last_update_success and bool(self._vap_data())

@@ -182,6 +182,8 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.api.get_pepvpn_status(), # PepVPN/SpeedFusion VPN status
                 self.api.get_wan_health_check(),
                 self.api.get_hc_failure_simulation(),
+                self.api.get_ap_status(),
+                self.api.get_vap_summary(),
                 return_exceptions=True,
             )
 
@@ -205,6 +207,16 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if isinstance(hc_failure_simulation, Exception):
                 _LOGGER.debug("HC failure simulation status unavailable: %s", hc_failure_simulation)
                 hc_failure_simulation = set()
+
+            ap_status = results[8]
+            if isinstance(ap_status, Exception):
+                _LOGGER.debug("AP status unavailable (not supported on this device): %s", ap_status)
+                ap_status = {}
+
+            vap_summary = results[9]
+            if isinstance(vap_summary, Exception):
+                _LOGGER.debug("VAP summary unavailable (not supported on this device): %s", vap_summary)
+                vap_summary = {}
 
             # Unpack results
             wan_status, clients, system_info, traffic_stats, location_info = results[:5]
@@ -278,6 +290,8 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "pepvpn_status": pepvpn_status,
                 "wan_health_check": wan_health_check,
                 "hc_failure_simulation": hc_failure_simulation,
+                "ap_status": ap_status,
+                "vap_summary": vap_summary,
             }
                 
         except Exception as e:
