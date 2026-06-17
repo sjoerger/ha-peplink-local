@@ -1035,6 +1035,27 @@ class PeplinkAPI:
             }
         return result
 
+    async def get_ap_status(self) -> dict[str, Any]:
+        """Fetch the built-in AP enabled/supported status via GET /api/cmd.ap."""
+        response = await self._make_api_request("cmd.ap", public_api=True)
+        if response.get("stat") == "ok":
+            return response.get("response", {})
+        return {}
+
+    async def get_vap_summary(self) -> dict[str, Any]:
+        """Fetch per-SSID (VAP) runtime status via status.extap.vap.summary CGI.
+
+        Returns a dict keyed by vap_id (str), e.g.:
+            {"2": {"vap_id": 2, "active": True, "ssid": "...", "station": 15, ...}}
+        """
+        response = await self._make_api_request(
+            "status.extap.vap.summary", public_api=False
+        )
+        if response.get("stat") != "ok":
+            return {}
+        vap_info = response.get("response", {}).get("vap_info", {})
+        return {str(k): v for k, v in vap_info.items()}
+
     async def close(self) -> None:
         """Close the session if we created it."""
         if self._own_session and self._session is not None:
