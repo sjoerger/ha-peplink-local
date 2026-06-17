@@ -592,12 +592,12 @@ async def async_setup_entry(
             conn_id = wan_link["conn_id"]
             wan_label = wan_link.get("name", f"WAN {conn_id}")
 
-            for field, name, unit, icon, state_cls in [
-                ("state", "State", None, "mdi:transit-connection-variant", None),
-                ("rtt", "RTT", "ms", "mdi:timer-outline", SensorStateClass.MEASUREMENT),
-                ("rx", "RX", "B", "mdi:arrow-down", SensorStateClass.TOTAL_INCREASING),
-                ("tx", "TX", "B", "mdi:arrow-up", SensorStateClass.TOTAL_INCREASING),
-                ("loss", "Loss", None, "mdi:alert-circle-outline", SensorStateClass.MEASUREMENT),
+            for field, name, unit, icon, state_cls, dev_cls in [
+                ("state", "State", None, "mdi:transit-connection-variant", None, None),
+                ("rtt", "RTT", "ms", "mdi:timer-outline", SensorStateClass.MEASUREMENT, None),
+                ("rx_rate", "Download", UnitOfDataRate.KILOBITS_PER_SECOND, "mdi:arrow-down", SensorStateClass.MEASUREMENT, SensorDeviceClass.DATA_RATE),
+                ("tx_rate", "Upload", UnitOfDataRate.KILOBITS_PER_SECOND, "mdi:arrow-up", SensorStateClass.MEASUREMENT, SensorDeviceClass.DATA_RATE),
+                ("loss", "Loss", None, "mdi:alert-circle-outline", SensorStateClass.MEASUREMENT, None),
             ]:
                 entities.append(
                     PeplinkPepVPNTunnelSensor(
@@ -607,6 +607,7 @@ async def async_setup_entry(
                             name=f"{wan_label} {name}",
                             native_unit_of_measurement=unit,
                             state_class=state_cls,
+                            device_class=dev_cls,
                             icon=icon,
                             value_fn=lambda wl, f=field: wl.get(f),
                         ),
