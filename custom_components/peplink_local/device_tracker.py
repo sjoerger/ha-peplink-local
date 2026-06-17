@@ -46,43 +46,101 @@ async def async_setup_entry(
     async_add_entities(entities, True)
 
     # --- Client trackers ---
-    # Track which MACs have entity objects so we never create duplicates.
-    known_macs: set[str] = set()
+    # Entities are keyed by device NAME (not MAC address).  This means MAC
+    # rotation — common on Apple Watch and iPhone — is handled transparently:
+    # _update_device_data searches coordinator data by name on every poll and
+    # updates _current_mac to whatever MAC the device is using right now.
+    known_names: set[str] = set()
+    known_uids: set[str] = set()
+
+    def _client_uid(name: str) -> str:
+        return f"{coordinator.host}_client_{name}"
 
     def _add_clients(clients: list[dict]) -> None:
-        """Create entity objects for any MACs not yet tracked."""
+        """Create entity objects for any device names not yet tracked."""
         new_entities = []
         for client in clients:
             mac = client.get("mac")
-            if not mac or mac in known_macs:
-                continue
-            known_macs.add(mac)
             name = client.get("name") or mac
-            _LOGGER.debug("Creating device tracker for client: %s (%s)", name, mac)
+            if not name:
+                continue
+            if name in known_names:
+                _LOGGER.debug("Skipping duplicate client name %s", name)
+                continue
+            known_names.add(name)
+            known_uids.add(_client_uid(name))
+            _LOGGER.debug(
+                "Creating device tracker for client: %s (%s)",
+                name, mac or "offline",
+            )
             new_entities.append(
                 PeplinkClientTracker(coordinator, entry.entry_id, name, mac)
             )
         if new_entities:
-            async_add_entities(new_entities, True)
+            async_add_entities(new_entities)
 
-    # Restore previously registered client entities from the entity registry so
-    # they show as "not_home" rather than "unavailable" after a restart.
     entity_reg = er.async_get(hass)
     prefix = f"{coordinator.host}_client_"
-    restored = [
-        {"mac": e.unique_id[len(prefix):], "name": e.original_name or e.unique_id[len(prefix):]}
-        for e in er.async_entries_for_config_entry(entity_reg, entry.entry_id)
-        if e.domain == "device_tracker" and e.unique_id.startswith(prefix)
-    ]
-    if restored:
-        _LOGGER.debug("Restoring %d previously registered client trackers", len(restored))
-        _add_clients(restored)
+    gps_uid = f"{coordinator.host}_gps"
+    gps_enabled = bool(coordinator.data.get("location_info", {}).get("gps", False))
 
-    # Add currently visible clients (may include ones not in registry yet)
+    pre_existing = list(er.async_entries_for_config_entry(entity_reg, entry.entry_id))
+
     current_clients = coordinator.data.get("clients", {}).get("client", [])
+    current_names = {
+        (c.get("name") or c.get("mac"))
+        for c in current_clients
+        if c.get("name") or c.get("mac")
+    }
+
+    # Collect offline device names from existing name-format registry entries
+    # (those whose uid suffix has no colons) before touching anything.
+    offline_names = {
+        e.original_name
+        for e in pre_existing
+        if e.domain == "device_tracker"
+        and e.unique_id.startswith(prefix)
+        and e.original_name
+        and e.original_name not in current_names
+        and ":" not in e.unique_id[len(prefix):]  # name-format only
+    }
+
+    # Remove legacy MAC-format entries (uid suffix contains colons) NOW, before
+    # _add_clients triggers eager entity registration tasks.  If these entries
+    # remain in the registry when entity tasks run, HA sees entity_id conflicts
+    # and silently rejects the new name-format registrations.
+    for e in pre_existing:
+        if (e.domain == "device_tracker"
+                and e.unique_id.startswith(prefix)
+                and ":" in e.unique_id[len(prefix):]):
+            _LOGGER.debug("Removing legacy MAC-format tracker: %s", e.entity_id)
+            entity_reg.async_remove(e.entity_id)
+
+    # Add online clients.  With the registry now clear of MAC-format conflicts,
+    # entity tasks can register name-format entities without collisions.
     _add_clients(current_clients)
 
-    # Dynamically add new clients discovered on subsequent coordinator updates
+    # Restore offline devices so they show as "not_home" rather than disappearing.
+    if offline_names:
+        _LOGGER.debug("Restoring %d offline client trackers", len(offline_names))
+        _add_clients([{"name": n, "mac": None} for n in offline_names])
+
+    # Remove any remaining stale name-format entries (devices no longer tracked
+    # that were not restored as offline).  Use the pre-existing snapshot so
+    # freshly-registered entities are never touched.
+    to_remove = [
+        e.entity_id
+        for e in pre_existing
+        if e.domain == "device_tracker"
+        and not (gps_enabled and e.unique_id == gps_uid)
+        and e.unique_id not in known_uids
+        and ":" not in e.unique_id[len(prefix):]  # MAC-format already removed above
+    ]
+    for entity_id in to_remove:
+        _LOGGER.debug("Removing stale device tracker from registry: %s", entity_id)
+        entity_reg.async_remove(entity_id)
+
+    # Dynamically add new clients discovered on subsequent coordinator updates.
     @callback
     def _handle_coordinator_update() -> None:
         new_clients = coordinator.data.get("clients", {}).get("client", [])
@@ -156,7 +214,13 @@ class PeplinkGPSTracker(CoordinatorEntity, TrackerEntity):
 
 
 class PeplinkClientTracker(CoordinatorEntity, ScannerEntity):
-    """Representation of a Peplink client device tracker."""
+    """Representation of a Peplink client device tracker.
+
+    Keyed by device NAME rather than MAC address so that MAC rotation
+    (Apple Watch, iPhone privacy MACs) is handled without creating duplicate
+    entities or requiring a restart.  _update_device_data finds the current
+    MAC by searching coordinator data by name on every coordinator update.
+    """
 
     _attr_has_entity_name = True
 
@@ -165,18 +229,18 @@ class PeplinkClientTracker(CoordinatorEntity, ScannerEntity):
         coordinator: DataUpdateCoordinator,
         config_entry_id: str,
         client_name: str,
-        client_mac: str,
+        initial_mac: Optional[str],
     ):
         """Initialize the device tracker."""
         super().__init__(coordinator)
         self._config_entry_id = config_entry_id
         self._client_name = client_name
-        self._client_mac = client_mac
-        self._attr_unique_id = f"{coordinator.host}_client_{client_mac}"
+        self._attr_unique_id = f"{coordinator.host}_client_{client_name}"
         self._attr_name = client_name
+        self._current_mac: Optional[str] = initial_mac
         self._is_connected = False
         self._ip_address = None
-        self._attributes = {}
+        self._attributes: Dict[str, Any] = {}
         self._update_device_data()
 
     @property
@@ -205,7 +269,7 @@ class PeplinkClientTracker(CoordinatorEntity, ScannerEntity):
 
     @property
     def mac_address(self) -> Optional[str]:
-        return self._client_mac
+        return self._current_mac
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
@@ -221,21 +285,35 @@ class PeplinkClientTracker(CoordinatorEntity, ScannerEntity):
         self._ip_address = None
         self._attributes = {
             ATTR_CLIENT_NAME: self._client_name,
-            ATTR_CLIENT_MAC: self._client_mac,
+            ATTR_CLIENT_MAC: self._current_mac or "",
         }
 
         if not self.coordinator.data:
             return
 
+        # Find this device by name.  When the same name appears more than once
+        # (device has multiple DHCP leases from MAC rotation), prefer the active
+        # entry so the entity correctly shows "home" even after a MAC change.
+        matched = None
         for client in self.coordinator.data.get("clients", {}).get("client", []):
-            if client.get("mac") == self._client_mac:
-                self._is_connected = client.get("active", False)
-                self._ip_address = client.get("ip")
-                for key, value in client.items():
-                    if key not in ["mac", "name", "ip"]:
-                        self._attributes[key] = value
-                _LOGGER.debug(
-                    "Client %s (%s) active=%s",
-                    self._client_name, self._client_mac, self._is_connected,
-                )
+            if (client.get("name") or client.get("mac")) != self._client_name:
+                continue
+            if matched is None or client.get("active", False):
+                matched = client
+            if matched.get("active", False):
                 break
+
+        if matched:
+            new_mac = matched.get("mac")
+            if new_mac:
+                self._current_mac = new_mac
+            self._is_connected = matched.get("active", False)
+            self._ip_address = matched.get("ip")
+            for key, value in matched.items():
+                if key not in ["mac", "name", "ip"]:
+                    self._attributes[key] = value
+            self._attributes[ATTR_CLIENT_MAC] = self._current_mac or ""
+            _LOGGER.debug(
+                "Client %s (%s) active=%s",
+                self._client_name, self._current_mac, self._is_connected,
+            )
