@@ -181,6 +181,7 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.api.get_location(),      # Get location data from GPS
                 self.api.get_pepvpn_status(), # PepVPN/SpeedFusion VPN status
                 self.api.get_wan_health_check(),
+                self.api.get_hc_failure_simulation(),
                 return_exceptions=True,
             )
 
@@ -199,6 +200,11 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if isinstance(wan_health_check, Exception):
                 _LOGGER.debug("WAN health check status unavailable: %s", wan_health_check)
                 wan_health_check = {}
+
+            hc_failure_simulation = results[7]
+            if isinstance(hc_failure_simulation, Exception):
+                _LOGGER.debug("HC failure simulation status unavailable: %s", hc_failure_simulation)
+                hc_failure_simulation = set()
 
             # Unpack results
             wan_status, clients, system_info, traffic_stats, location_info = results[:5]
@@ -271,6 +277,7 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "location_info": location_info,
                 "pepvpn_status": pepvpn_status,
                 "wan_health_check": wan_health_check,
+                "hc_failure_simulation": hc_failure_simulation,
             }
                 
         except Exception as e:

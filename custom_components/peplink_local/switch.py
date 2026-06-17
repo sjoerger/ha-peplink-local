@@ -61,6 +61,18 @@ async def async_setup_entry(
             initial_state=connection.get("enable", False),
         ))
 
+    # Add health check failure simulation switches for WANs with active health checks
+    for wan_id, hc_data in coordinator.data.get("wan_health_check", {}).items():
+        wan_name = hc_data.get("name", f"WAN {wan_id}")
+        device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"{coordinator.config_entry.entry_id}_wan{wan_id}")},
+            manufacturer="Peplink",
+            model="WAN Connection",
+            name=f"{coordinator.device_name or 'Peplink'} WAN{wan_id}",
+            via_device=(DOMAIN, coordinator.config_entry.entry_id),
+        )
+        entities.append(WanHCFailureSimSwitch(coordinator, wan_id, wan_name, device_info))
+
     async_add_entities(entities)
 
 
@@ -172,6 +184,44 @@ class PeplinkWANSwitch(CoordinatorEntity, SwitchEntity):
     @property
     def available(self) -> bool:
         """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+
+class WanHCFailureSimSwitch(CoordinatorEntity, SwitchEntity):
+    """Switch to enable/disable health check failure simulation on a WAN interface."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Health Check Simulation"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:heart-broken"
+
+    def __init__(self, coordinator, wan_id: str, wan_name: str, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator)
+        self._wan_id = wan_id
+        self._wan_name = wan_name
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_wan{wan_id}_hc_sim"
+        self._attr_device_info = device_info
+
+    @property
+    def is_on(self) -> bool:
+        return self._wan_id in self.coordinator.data.get("hc_failure_simulation", set())
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        if await self.coordinator.api.set_hc_failure_simulation(int(self._wan_id), True):
+            _LOGGER.info("WAN %s (%s) health check simulation enabled", self._wan_id, self._wan_name)
+            await self.coordinator.async_request_refresh()
+        else:
+            _LOGGER.error("Failed to enable health check simulation for WAN %s (%s)", self._wan_id, self._wan_name)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        if await self.coordinator.api.set_hc_failure_simulation(int(self._wan_id), False):
+            _LOGGER.info("WAN %s (%s) health check simulation disabled", self._wan_id, self._wan_name)
+            await self.coordinator.async_request_refresh()
+        else:
+            _LOGGER.error("Failed to disable health check simulation for WAN %s (%s)", self._wan_id, self._wan_name)
+
+    @property
+    def available(self) -> bool:
         return self.coordinator.last_update_success
 
     @property
