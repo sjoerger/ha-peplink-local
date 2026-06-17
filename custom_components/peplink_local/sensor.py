@@ -509,6 +509,117 @@ async def async_setup_entry(
                 else:
                     _LOGGER.debug("No uptime in wan_connection for WAN %s", wan_id)
 
+    # Add PepVPN profile and peer sensors
+    pepvpn_status = coordinator.data.get("pepvpn_status", {})
+    pepvpn_profiles = pepvpn_status.get("profiles", [])
+    pepvpn_peers = pepvpn_status.get("peers", [])
+
+    device_name_prefix = coordinator.device_name or f"Peplink {coordinator.host}"
+
+    for profile in pepvpn_profiles:
+        profile_id = profile["id"]
+        profile_device = DeviceInfo(
+            identifiers={(DOMAIN, f"{coordinator.config_entry.entry_id}_pepvpn_profile_{profile_id}")},
+            manufacturer="Peplink",
+            model="SpeedFusion VPN Profile",
+            name=f"{device_name_prefix} {profile['name']}",
+            via_device=(DOMAIN, coordinator.config_entry.entry_id),
+        )
+
+        for key, name, icon in [
+            ("status", "Status", "mdi:vpn"),
+            ("type", "Type", "mdi:information-outline"),
+        ]:
+            entities.append(
+                PeplinkPepVPNProfileSensor(
+                    coordinator=coordinator,
+                    description=PeplinkSensorEntityDescription(
+                        key=f"pepvpn_profile_{profile_id}_{key}",
+                        name=name,
+                        icon=icon,
+                        value_fn=lambda p, k=key: p.get(k),
+                    ),
+                    profile_id=profile_id,
+                    device_info=profile_device,
+                )
+            )
+
+        entities.append(
+            PeplinkPepVPNProfileSensor(
+                coordinator=coordinator,
+                description=PeplinkSensorEntityDescription(
+                    key=f"pepvpn_profile_{profile_id}_peer_count",
+                    name="Peer Count",
+                    icon="mdi:account-multiple",
+                    state_class=SensorStateClass.MEASUREMENT,
+                    value_fn=lambda p: p.get("peer_count"),
+                ),
+                profile_id=profile_id,
+                device_info=profile_device,
+            )
+        )
+
+    for peer in pepvpn_peers:
+        peer_id = peer["peer_id"]
+        profile_id = peer["profile_id"]
+        peer_name = peer.get("name") or peer.get("serial_number") or f"Peer {peer_id}"
+
+        peer_device = DeviceInfo(
+            identifiers={(DOMAIN, f"{coordinator.config_entry.entry_id}_pepvpn_peer_{peer_id}")},
+            manufacturer="Peplink",
+            model="SpeedFusion VPN Peer",
+            name=f"{device_name_prefix} {peer_name}",
+            via_device=(DOMAIN, f"{coordinator.config_entry.entry_id}_pepvpn_profile_{profile_id}"),
+        )
+
+        for key, name, icon in [
+            ("status", "Status", "mdi:vpn"),
+            ("type", "Type", "mdi:information-outline"),
+        ]:
+            entities.append(
+                PeplinkPepVPNPeerSensor(
+                    coordinator=coordinator,
+                    description=PeplinkSensorEntityDescription(
+                        key=f"pepvpn_peer_{peer_id}_{key}",
+                        name=name,
+                        icon=icon,
+                        value_fn=lambda p, k=key: p.get(k),
+                    ),
+                    peer_id=peer_id,
+                    device_info=peer_device,
+                )
+            )
+
+        # Tunnel sensors per WAN link
+        tunnel_info = pepvpn_status.get("tunnels", {}).get(peer_id, {})
+        for wan_link in tunnel_info.get("wan_links", []):
+            conn_id = wan_link["conn_id"]
+            wan_label = wan_link.get("name", f"WAN {conn_id}")
+
+            for field, name, unit, icon, state_cls in [
+                ("state", "State", None, "mdi:transit-connection-variant", None),
+                ("rtt", "RTT", "ms", "mdi:timer-outline", SensorStateClass.MEASUREMENT),
+                ("rx", "RX", "B", "mdi:arrow-down", SensorStateClass.TOTAL_INCREASING),
+                ("tx", "TX", "B", "mdi:arrow-up", SensorStateClass.TOTAL_INCREASING),
+                ("loss", "Loss", None, "mdi:alert-circle-outline", SensorStateClass.MEASUREMENT),
+            ]:
+                entities.append(
+                    PeplinkPepVPNTunnelSensor(
+                        coordinator=coordinator,
+                        description=PeplinkSensorEntityDescription(
+                            key=f"pepvpn_peer_{peer_id}_wan_{conn_id}_{field}",
+                            name=f"{wan_label} {name}",
+                            native_unit_of_measurement=unit,
+                            state_class=state_cls,
+                            icon=icon,
+                            value_fn=lambda wl, f=field: wl.get(f),
+                        ),
+                        peer_id=peer_id,
+                        conn_id=conn_id,
+                        device_info=peer_device,
+                    )
+                )
+
     # Add GPS location sensors
     location_info = coordinator.data.get("location_info", {})
     has_gps = location_info.get("gps", False)
@@ -821,6 +932,114 @@ class PeplinkWANSensor(CoordinatorEntity, SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return entity specific state attributes."""
         return self._extra_attrs
+
+
+class PeplinkPepVPNProfileSensor(CoordinatorEntity, SensorEntity):
+    """Sensor for a PepVPN profile."""
+
+    entity_description: PeplinkSensorEntityDescription
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: PeplinkDataUpdateCoordinator,
+        description: PeplinkSensorEntityDescription,
+        profile_id: str,
+        device_info: DeviceInfo,
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._profile_id = profile_id
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_{description.key}"
+        self._attr_device_info = device_info
+        if description.icon:
+            self._attr_icon = description.icon
+
+    def _current_profile(self) -> dict | None:
+        for profile in self.coordinator.data.get("pepvpn_status", {}).get("profiles", []):
+            if profile["id"] == self._profile_id:
+                return profile
+        return None
+
+    @property
+    def native_value(self):
+        profile = self._current_profile()
+        if profile and self.entity_description.value_fn:
+            return self.entity_description.value_fn(profile)
+        return None
+
+
+class PeplinkPepVPNPeerSensor(CoordinatorEntity, SensorEntity):
+    """Sensor for a PepVPN peer."""
+
+    entity_description: PeplinkSensorEntityDescription
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: PeplinkDataUpdateCoordinator,
+        description: PeplinkSensorEntityDescription,
+        peer_id: str,
+        device_info: DeviceInfo,
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._peer_id = peer_id
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_{description.key}"
+        self._attr_device_info = device_info
+        if description.icon:
+            self._attr_icon = description.icon
+
+    def _current_peer(self) -> dict | None:
+        for peer in self.coordinator.data.get("pepvpn_status", {}).get("peers", []):
+            if peer["peer_id"] == self._peer_id:
+                return peer
+        return None
+
+    @property
+    def native_value(self):
+        peer = self._current_peer()
+        if peer and self.entity_description.value_fn:
+            return self.entity_description.value_fn(peer)
+        return None
+
+
+class PeplinkPepVPNTunnelSensor(CoordinatorEntity, SensorEntity):
+    """Sensor for a PepVPN tunnel WAN link stat."""
+
+    entity_description: PeplinkSensorEntityDescription
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: PeplinkDataUpdateCoordinator,
+        description: PeplinkSensorEntityDescription,
+        peer_id: str,
+        conn_id: str,
+        device_info: DeviceInfo,
+    ) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._peer_id = peer_id
+        self._conn_id = conn_id
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_{description.key}"
+        self._attr_device_info = device_info
+        if description.icon:
+            self._attr_icon = description.icon
+
+    def _current_wan_link(self) -> dict | None:
+        tunnel = self.coordinator.data.get("pepvpn_status", {}).get("tunnels", {}).get(self._peer_id, {})
+        for wan_link in tunnel.get("wan_links", []):
+            if wan_link["conn_id"] == self._conn_id:
+                return wan_link
+        return None
+
+    @property
+    def native_value(self):
+        wan_link = self._current_wan_link()
+        if wan_link and self.entity_description.value_fn:
+            return self.entity_description.value_fn(wan_link)
+        return None
 
 
 def _translate_wan_type(wan_type: str) -> str:

@@ -176,17 +176,23 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.api.get_system_info(),  # Combined system info call
                 self.api.get_traffic_stats(),
                 self.api.get_location(),      # Get location data from GPS
+                self.api.get_pepvpn_status(), # PepVPN/SpeedFusion VPN status
                 return_exceptions=True,
             )
-            
-            # Check results for exceptions
-            for i, result in enumerate(results):
+
+            # Check results for exceptions — PepVPN failure is non-fatal
+            required_calls = ["WAN status", "client information", "system information", "traffic statistics", "location information"]
+            for i, result in enumerate(results[:5]):
                 if isinstance(result, Exception):
-                    api_calls = ["WAN status", "client information", "system information", "traffic statistics", "location information"]
-                    raise UpdateFailed(f"Failed to get {api_calls[i]}: {result}")
-                
+                    raise UpdateFailed(f"Failed to get {required_calls[i]}: {result}")
+
+            pepvpn_status = results[5]
+            if isinstance(pepvpn_status, Exception):
+                _LOGGER.debug("PepVPN status unavailable (not supported on this device): %s", pepvpn_status)
+                pepvpn_status = {"profiles": [], "peers": [], "tunnels": {}}
+
             # Unpack results
-            wan_status, clients, system_info, traffic_stats, location_info = results
+            wan_status, clients, system_info, traffic_stats, location_info = results[:5]
             
             # Extract components from the combined system_info call
             thermal_sensors = system_info.get("thermal_sensors", {"sensors": []})
@@ -229,7 +235,8 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "traffic_stats": traffic_stats,
                 "device_info": device_info_data,
                 "system_time": system_time,
-                "location_info": location_info
+                "location_info": location_info,
+                "pepvpn_status": pepvpn_status,
             }
                 
         except Exception as e:

@@ -87,6 +87,46 @@ async def async_setup_entry(
                 )
             )
     
+    # Add PepVPN profile and peer connectivity binary sensors
+    pepvpn_status = coordinator.data.get("pepvpn_status", {})
+    device_name_prefix = coordinator.device_name or f"Peplink {coordinator.host}"
+
+    for profile in pepvpn_status.get("profiles", []):
+        profile_id = profile["id"]
+        profile_device = DeviceInfo(
+            identifiers={(DOMAIN, f"{coordinator.config_entry.entry_id}_pepvpn_profile_{profile_id}")},
+            manufacturer="Peplink",
+            model="SpeedFusion VPN Profile",
+            name=f"{device_name_prefix} {profile['name']}",
+            via_device=(DOMAIN, coordinator.config_entry.entry_id),
+        )
+        entities.append(
+            PeplinkPepVPNProfileBinarySensor(
+                coordinator=coordinator,
+                profile_id=profile_id,
+                device_info=profile_device,
+            )
+        )
+
+    for peer in pepvpn_status.get("peers", []):
+        peer_id = peer["peer_id"]
+        profile_id = peer["profile_id"]
+        peer_name = peer.get("name") or peer.get("serial_number") or f"Peer {peer_id}"
+        peer_device = DeviceInfo(
+            identifiers={(DOMAIN, f"{coordinator.config_entry.entry_id}_pepvpn_peer_{peer_id}")},
+            manufacturer="Peplink",
+            model="SpeedFusion VPN Peer",
+            name=f"{device_name_prefix} {peer_name}",
+            via_device=(DOMAIN, f"{coordinator.config_entry.entry_id}_pepvpn_profile_{profile_id}"),
+        )
+        entities.append(
+            PeplinkPepVPNPeerBinarySensor(
+                coordinator=coordinator,
+                peer_id=peer_id,
+                device_info=peer_device,
+            )
+        )
+
     async_add_entities(entities)
 
 
@@ -139,3 +179,69 @@ class PeplinkWANBinarySensor(CoordinatorEntity, BinarySensorEntity):
                 
         # Fall back to initial sensor data
         return self.entity_description.value_fn(self._initial_sensor_data)
+
+
+class PeplinkPepVPNProfileBinarySensor(CoordinatorEntity, BinarySensorEntity):
+    """Connectivity binary sensor for a PepVPN profile."""
+
+    _attr_has_entity_name = True
+    _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
+    _attr_name = "Connection Status"
+    _attr_icon = "mdi:vpn"
+
+    def __init__(
+        self,
+        coordinator,
+        profile_id: str,
+        device_info: DeviceInfo,
+    ) -> None:
+        super().__init__(coordinator)
+        self._profile_id = profile_id
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_pepvpn_profile_{profile_id}_connected"
+        self._attr_device_info = device_info
+
+    def _current_profile(self) -> dict | None:
+        for profile in self.coordinator.data.get("pepvpn_status", {}).get("profiles", []):
+            if profile["id"] == self._profile_id:
+                return profile
+        return None
+
+    @property
+    def is_on(self) -> bool | None:
+        profile = self._current_profile()
+        if profile is None:
+            return None
+        return profile.get("status") == "CONNECTED"
+
+
+class PeplinkPepVPNPeerBinarySensor(CoordinatorEntity, BinarySensorEntity):
+    """Connectivity binary sensor for a PepVPN peer."""
+
+    _attr_has_entity_name = True
+    _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
+    _attr_name = "Connection Status"
+    _attr_icon = "mdi:vpn"
+
+    def __init__(
+        self,
+        coordinator,
+        peer_id: str,
+        device_info: DeviceInfo,
+    ) -> None:
+        super().__init__(coordinator)
+        self._peer_id = peer_id
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_pepvpn_peer_{peer_id}_connected"
+        self._attr_device_info = device_info
+
+    def _current_peer(self) -> dict | None:
+        for peer in self.coordinator.data.get("pepvpn_status", {}).get("peers", []):
+            if peer["peer_id"] == self._peer_id:
+                return peer
+        return None
+
+    @property
+    def is_on(self) -> bool | None:
+        peer = self._current_peer()
+        if peer is None:
+            return None
+        return peer.get("status") == "CONNECTED"

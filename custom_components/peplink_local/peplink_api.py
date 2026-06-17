@@ -906,6 +906,85 @@ class PeplinkAPI:
             _LOGGER.error("Error retrieving location information: %s", e)
             return {"gps": False, "type": "Unknown", "location": {}}
             
+    async def get_pepvpn_status(self) -> Dict[str, Any]:
+        """Retrieve PepVPN/SpeedFusion VPN status including profiles, peers, and tunnel stats."""
+        empty = {"profiles": [], "peers": [], "tunnels": {}}
+        try:
+            response = await self._api_request("/api/status.pepvpn?infoType=profile,peer")
+
+            if response.get("stat") != "ok" or "response" not in response:
+                _LOGGER.debug("PepVPN status not available or not supported")
+                return empty
+
+            data = response["response"]
+
+            # Parse profiles (numeric keys in the profile object)
+            profiles = []
+            for key, value in data.get("profile", {}).items():
+                if isinstance(key, str) and key.isdigit():
+                    profiles.append({
+                        "id": key,
+                        "name": value.get("name", f"Profile {key}"),
+                        "status": value.get("status", ""),
+                        "master": value.get("master", False),
+                        "type": value.get("type", ""),
+                        "peer_count": value.get("peerCount", 0),
+                        "user_count": value.get("userCount", 0),
+                        "conflict_count": value.get("conflictCount", 0),
+                    })
+
+            # Parse peers (array)
+            peers = []
+            for peer in data.get("peer", []):
+                peers.append({
+                    "serial_number": peer.get("serialNumber", ""),
+                    "name": peer.get("name", ""),
+                    "status": peer.get("status", ""),
+                    "profile_id": str(peer.get("profileId", "")),
+                    "secure": peer.get("secure", False),
+                    "type": peer.get("type", ""),
+                    "peer_id": peer.get("peerId", ""),
+                })
+
+            # Fetch tunnel stats for each peer
+            tunnels = {}
+            peer_ids = [p["peer_id"] for p in peers if p["peer_id"]]
+            if peer_ids:
+                tunnel_qs = "&".join(f"tunnelOption={pid}" for pid in peer_ids)
+                tunnel_resp = await self._api_request(
+                    f"/api/status.pepvpn?infoType=tunnel&{tunnel_qs}"
+                )
+                if tunnel_resp.get("stat") == "ok" and "response" in tunnel_resp:
+                    for peer_id, tunnel_info in tunnel_resp["response"].get("tunnel", {}).items():
+                        if peer_id == "order" or not isinstance(tunnel_info, dict):
+                            continue
+                        wan_links = []
+                        wan_data = tunnel_info.get("wan", {})
+                        for conn_id, wan_obj in wan_data.items():
+                            if conn_id == "order" or not isinstance(wan_obj, dict):
+                                continue
+
+                            def _first(val):
+                                """Return first element if list, else the value itself."""
+                                return val[0] if isinstance(val, list) and val else val
+
+                            wan_links.append({
+                                "conn_id": conn_id,
+                                "name": wan_obj.get("name", f"WAN {conn_id}"),
+                                "state": wan_obj.get("state", ""),
+                                "rtt": wan_obj.get("rtt"),
+                                "rx": _first(wan_obj.get("rx")),
+                                "tx": _first(wan_obj.get("tx")),
+                                "loss": _first(wan_obj.get("loss")),
+                            })
+                        tunnels[peer_id] = {"wan_links": wan_links}
+
+            return {"profiles": profiles, "peers": peers, "tunnels": tunnels}
+
+        except Exception as e:
+            _LOGGER.debug("PepVPN status not available: %s", e)
+            return empty
+
     async def close(self) -> None:
         """Close the session if we created it."""
         if self._own_session and self._session is not None:
