@@ -976,6 +976,28 @@ class PeplinkAPI:
             _LOGGER.debug("PepVPN/SFC status not available: %s", e)
             return empty
 
+    async def get_hc_failure_simulation(self) -> set[str]:
+        """Return the set of WAN IDs (str) that currently have failure simulation active."""
+        response = await self._make_api_request(
+            "system.action",
+            public_api=False,
+            action="simulateHealthCheckFailure",
+        )
+        if response.get("stat") == "ok":
+            ids = response.get("response", {}).get("simulatedWAN") or []
+            return {str(i) for i in ids}
+        return set()
+
+    async def set_hc_failure_simulation(self, wan_id: int, enable: bool) -> bool:
+        """Enable or disable health check failure simulation for a WAN."""
+        response = await self._make_api_request(
+            "system.action",
+            method="POST",
+            public_api=False,
+            data={"action": "simulateHealthCheckFailure", "enable": enable, "connId": wan_id},
+        )
+        return response.get("stat") == "ok"
+
     async def get_wan_health_check(self) -> dict[str, Any]:
         """Fetch WAN logical health check status from the support data.cgi endpoint.
 
