@@ -976,6 +976,43 @@ class PeplinkAPI:
             _LOGGER.debug("PepVPN/SFC status not available: %s", e)
             return empty
 
+    async def get_wan_health_check(self) -> dict[str, Any]:
+        """Fetch WAN logical health check status from the support data.cgi endpoint.
+
+        Returns a dict keyed by WAN connection id (str), e.g.:
+            {"1": {"name": "Starlink", "result": 1, "h": [1, 1, 0, ...]}}
+        Only WANs that are enabled and have a connected device appear in the response.
+        """
+        import xml.etree.ElementTree as ET
+
+        if not await self.ensure_connected():
+            raise Exception("Not connected to Peplink router")
+
+        session = await self._get_session()
+        url = urljoin(self.base_url, "/cgi-bin/MANGA/data.cgi")
+        headers = {}
+        if self._auth_cookie:
+            headers["Cookie"] = f"bauth={self._auth_cookie}"
+        params = {"option": "hc_logical_stat", "_": str(int(time.time() * 1000))}
+
+        async with session.get(url, params=params, headers=headers) as response:
+            response.raise_for_status()
+            text = await response.text()
+
+        root = ET.fromstring(text)
+        result: dict[str, Any] = {}
+        for conn in root.findall("conn"):
+            conn_id = conn.get("id", "")
+            if not conn_id:
+                continue
+            h_values = [int(h.text or "0") for h in conn.findall("h")]
+            result[conn_id] = {
+                "name": conn.findtext("name", ""),
+                "result": int(conn.findtext("result", "0")),
+                "h": h_values,
+            }
+        return result
+
     async def close(self) -> None:
         """Close the session if we created it."""
         if self._own_session and self._session is not None:
