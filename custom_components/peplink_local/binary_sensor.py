@@ -87,6 +87,55 @@ async def async_setup_entry(
                 )
             )
     
+    # Add SpeedFusion Connect / PepVPN connectivity binary sensors
+    pepvpn_status = coordinator.data.get("pepvpn_status", {})
+    pepvpn_peers = pepvpn_status.get("peers", [])
+    device_name_prefix = coordinator.device_name or f"Peplink {coordinator.host}"
+
+    # Build parent device per unique profile_id and add an aggregate connected sensor to each
+    _pepvpn_parent_devices: dict[str, DeviceInfo] = {}
+    for peer in pepvpn_peers:
+        pid = peer.get("profile_id", "")
+        if pid and pid not in _pepvpn_parent_devices:
+            try:
+                is_sfc = int(pid) >= 60000
+            except ValueError:
+                is_sfc = False
+            parent_device = DeviceInfo(
+                identifiers={(DOMAIN, f"{coordinator.config_entry.entry_id}_pepvpn_profile_{pid}")},
+                manufacturer="Peplink",
+                model="SpeedFusion Connect" if is_sfc else "SpeedFusion VPN Profile",
+                name=f"{device_name_prefix} SpeedFusion Connect" if is_sfc else f"{device_name_prefix} VPN Profile {pid}",
+                via_device=(DOMAIN, coordinator.config_entry.entry_id),
+            )
+            _pepvpn_parent_devices[pid] = parent_device
+            entities.append(
+                PeplinkPepVPNProfileBinarySensor(
+                    coordinator=coordinator,
+                    profile_id=pid,
+                    device_info=parent_device,
+                )
+            )
+
+    for peer in pepvpn_peers:
+        peer_id = peer["peer_id"]
+        profile_id = peer["profile_id"]
+        peer_name = peer.get("name") or peer.get("serial_number") or f"Peer {peer_id}"
+        peer_device = DeviceInfo(
+            identifiers={(DOMAIN, f"{coordinator.config_entry.entry_id}_pepvpn_peer_{peer_id}")},
+            manufacturer="Peplink",
+            model="SpeedFusion Connect Peer",
+            name=f"{device_name_prefix} {peer_name}",
+            via_device=(DOMAIN, f"{coordinator.config_entry.entry_id}_pepvpn_profile_{profile_id}"),
+        )
+        entities.append(
+            PeplinkPepVPNPeerBinarySensor(
+                coordinator=coordinator,
+                peer_id=peer_id,
+                device_info=peer_device,
+            )
+        )
+
     async_add_entities(entities)
 
 
@@ -139,3 +188,64 @@ class PeplinkWANBinarySensor(CoordinatorEntity, BinarySensorEntity):
                 
         # Fall back to initial sensor data
         return self.entity_description.value_fn(self._initial_sensor_data)
+
+
+class PeplinkPepVPNProfileBinarySensor(CoordinatorEntity, BinarySensorEntity):
+    """Connectivity binary sensor for a PepVPN profile."""
+
+    _attr_has_entity_name = True
+    _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
+    _attr_name = "Connection Status"
+    _attr_icon = "mdi:vpn"
+
+    def __init__(
+        self,
+        coordinator,
+        profile_id: str,
+        device_info: DeviceInfo,
+    ) -> None:
+        super().__init__(coordinator)
+        self._profile_id = profile_id
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_pepvpn_profile_{profile_id}_connected"
+        self._attr_device_info = device_info
+
+    @property
+    def is_on(self) -> bool | None:
+        peers = self.coordinator.data.get("pepvpn_status", {}).get("peers", [])
+        profile_peers = [p for p in peers if p.get("profile_id") == self._profile_id]
+        if not profile_peers:
+            return None
+        return any(p.get("status") == "CONNECTED" for p in profile_peers)
+
+
+class PeplinkPepVPNPeerBinarySensor(CoordinatorEntity, BinarySensorEntity):
+    """Connectivity binary sensor for a PepVPN peer."""
+
+    _attr_has_entity_name = True
+    _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
+    _attr_name = "Connection Status"
+    _attr_icon = "mdi:vpn"
+
+    def __init__(
+        self,
+        coordinator,
+        peer_id: str,
+        device_info: DeviceInfo,
+    ) -> None:
+        super().__init__(coordinator)
+        self._peer_id = peer_id
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_pepvpn_peer_{peer_id}_connected"
+        self._attr_device_info = device_info
+
+    def _current_peer(self) -> dict | None:
+        for peer in self.coordinator.data.get("pepvpn_status", {}).get("peers", []):
+            if peer["peer_id"] == self._peer_id:
+                return peer
+        return None
+
+    @property
+    def is_on(self) -> bool | None:
+        peer = self._current_peer()
+        if peer is None:
+            return None
+        return peer.get("status") == "CONNECTED"

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import timedelta
 from typing import Any
 
@@ -160,6 +161,8 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.serial_number = None  # Can be updated later if the API provides serial number
         self.product_code = None  # Can be updated later if the API provides product code
         self.hardware_revision = None  # Can be updated later if the API provides hardware revision
+        self._pepvpn_prev_bytes: dict = {}  # {peer_id: {conn_id: {rx, tx}}}
+        self._pepvpn_prev_time: float | None = None
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Update data via API."""
@@ -176,17 +179,23 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.api.get_system_info(),  # Combined system info call
                 self.api.get_traffic_stats(),
                 self.api.get_location(),      # Get location data from GPS
+                self.api.get_pepvpn_status(), # PepVPN/SpeedFusion VPN status
                 return_exceptions=True,
             )
-            
-            # Check results for exceptions
-            for i, result in enumerate(results):
+
+            # Check results for exceptions — PepVPN failure is non-fatal
+            required_calls = ["WAN status", "client information", "system information", "traffic statistics", "location information"]
+            for i, result in enumerate(results[:5]):
                 if isinstance(result, Exception):
-                    api_calls = ["WAN status", "client information", "system information", "traffic statistics", "location information"]
-                    raise UpdateFailed(f"Failed to get {api_calls[i]}: {result}")
-                
+                    raise UpdateFailed(f"Failed to get {required_calls[i]}: {result}")
+
+            pepvpn_status = results[5]
+            if isinstance(pepvpn_status, Exception):
+                _LOGGER.debug("PepVPN status unavailable (not supported on this device): %s", pepvpn_status)
+                pepvpn_status = {"profiles": [], "peers": [], "tunnels": {}}
+
             # Unpack results
-            wan_status, clients, system_info, traffic_stats, location_info = results
+            wan_status, clients, system_info, traffic_stats, location_info = results[:5]
             
             # Extract components from the combined system_info call
             thermal_sensors = system_info.get("thermal_sensors", {"sensors": []})
@@ -220,6 +229,30 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if device_info_data.get("hardware_revision"):
                     self.hardware_revision = device_info_data.get("hardware_revision")
                 
+            # Compute instantaneous kbps rates for SFC/PepVPN tunnel WAN links
+            now = time.monotonic()
+            elapsed = (now - self._pepvpn_prev_time) if self._pepvpn_prev_time else None
+            new_prev_bytes: dict = {}
+            for peer_id, tunnel in pepvpn_status.get("tunnels", {}).items():
+                prev_peer = self._pepvpn_prev_bytes.get(peer_id, {})
+                new_prev_bytes[peer_id] = {}
+                for wan_link in tunnel.get("wan_links", []):
+                    conn_id = wan_link["conn_id"]
+                    rx = wan_link.get("rx") or 0
+                    tx = wan_link.get("tx") or 0
+                    prev = prev_peer.get(conn_id, {})
+                    if elapsed and elapsed > 0 and prev:
+                        rx_delta = max(0, rx - (prev.get("rx") or 0))
+                        tx_delta = max(0, tx - (prev.get("tx") or 0))
+                        wan_link["rx_rate"] = round(rx_delta * 8 / elapsed / 1000, 1)
+                        wan_link["tx_rate"] = round(tx_delta * 8 / elapsed / 1000, 1)
+                    else:
+                        wan_link["rx_rate"] = None
+                        wan_link["tx_rate"] = None
+                    new_prev_bytes[peer_id][conn_id] = {"rx": rx, "tx": tx}
+            self._pepvpn_prev_time = now
+            self._pepvpn_prev_bytes = new_prev_bytes
+
             # Combine all data into a single data structure
             return {
                 "wan_status": wan_status,
@@ -229,7 +262,8 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "traffic_stats": traffic_stats,
                 "device_info": device_info_data,
                 "system_time": system_time,
-                "location_info": location_info
+                "location_info": location_info,
+                "pepvpn_status": pepvpn_status,
             }
                 
         except Exception as e:
