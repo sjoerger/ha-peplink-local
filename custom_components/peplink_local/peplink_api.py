@@ -1035,6 +1035,17 @@ class PeplinkAPI:
             }
         return result
 
+    async def get_wifi_clients(self) -> dict[str, Any]:
+        """Fetch per-client Wi-Fi details via status.extap.client CGI.
+
+        Returns a dict keyed by MAC address, e.g.:
+            {"04c29b75605e": {"client_name": "Aura", "rssi": -35, "is_assoc": True, ...}}
+        """
+        response = await self._make_api_request("status.extap.client", public_api=False)
+        if response.get("stat") != "ok":
+            return {}
+        return response.get("response", {}).get("client_info", {})
+
     async def get_ap_status(self) -> dict[str, Any]:
         """Fetch the built-in AP enabled/supported status via GET /api/cmd.ap."""
         response = await self._make_api_request("cmd.ap", public_api=True)

@@ -1153,6 +1153,12 @@ class VapClientCountSensor(_VapSensorBase):
 
     @property
     def native_value(self) -> int | None:
+        wifi_clients = self.coordinator.data.get("wifi_clients", {})
+        if wifi_clients:
+            return sum(
+                1 for c in wifi_clients.values()
+                if str(c.get("vap_id")) == self._vap_id and c.get("is_assoc", False)
+            )
         return self._vap_data().get("station")
 
 

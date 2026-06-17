@@ -519,11 +519,104 @@ Note: the identifier field is `connId` (not `id`) for this endpoint.
 
 Followed by `POST /api/cmd.config.apply` to commit.
 
+#### Reading AP enabled status
+
+`GET /api/cmd.ap`
+
+Returns whether the built-in AP is enabled and supported on this device.
+
+Example response:
+```json
+{
+  "stat": "ok",
+  "response": {
+    "enable": true,
+    "support": true
+  }
+}
+```
+
 ### Unofficial APIs 
 
 - Can use same authentication. 
 - _ parameter is the current timestamp in milliseconds
 - use the same IP, but use /cgi-bin/MANGA/api.cgi?func=<function> instead of /api/<function>
+
+#### Reading per-SSID (VAP) summary
+
+URL Example: `https://10.0.6.1/cgi-bin/MANGA/api.cgi?func=status.extap.vap.summary&_=<timestamp>`
+
+Returns runtime stats for each SSID (Virtual Access Point), keyed by `vap_id`.
+
+Example response:
+```json
+{
+  "stat": "ok",
+  "response": {
+    "vap_info": {
+      "0": {
+        "vap_id": 0,
+        "ssid": "390rv-2.4ghz",
+        "active": true,
+        "station": 8,
+        "ap": 1,
+        "security": "wpa2-psk",
+        "tx_byte": 102400,
+        "rx_byte": 204800
+      },
+      "1": {
+        "vap_id": 1,
+        "ssid": "390rv-5ghz",
+        "active": true,
+        "station": 7,
+        "ap": 1,
+        "security": "wpa2-psk",
+        "tx_byte": 512000,
+        "rx_byte": 1024000
+      }
+    }
+  }
+}
+```
+
+Notes:
+- `tx_byte` and `rx_byte` are bytes transferred in the last 60-second window; convert to kbps: `value / 60 * 8 / 1000`
+- `active` reflects whether the SSID is broadcasting; `station` is the connected client count
+
+#### Reading per-client Wi-Fi details
+
+URL Example: `https://10.0.6.1/cgi-bin/MANGA/api.cgi?func=status.extap.client&_=<timestamp>`
+
+Returns per-client Wi-Fi data for all clients the AP has seen, keyed by MAC address.
+
+Example response:
+```json
+{
+  "stat": "ok",
+  "response": {
+    "client_info": {
+      "04c29b75605e": {
+        "mac": "04:C2:9B:75:60:5E",
+        "client_name": "Aura",
+        "ip_addr": "10.0.6.42",
+        "rssi": -35,
+        "freq": 5180,
+        "mode": "11ax",
+        "wifigen": 6,
+        "is_assoc": true,
+        "vap_id": 1,
+        "ssid": "390rv-5ghz",
+        "duration": 3600
+      }
+    }
+  }
+}
+```
+
+Notes:
+- `is_assoc: false` means the AP remembers the client but it is not currently connected
+- `vap_id` links back to the `vap_info` key in `status.extap.vap.summary`
+- `ip_addr` may be `"0.0.0.0"` when not yet assigned
 
 #### Reading SpeedFusion Connect / PepVPN status
 

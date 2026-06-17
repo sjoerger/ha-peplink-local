@@ -184,6 +184,7 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.api.get_hc_failure_simulation(),
                 self.api.get_ap_status(),
                 self.api.get_vap_summary(),
+                self.api.get_wifi_clients(),
                 return_exceptions=True,
             )
 
@@ -217,6 +218,11 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if isinstance(vap_summary, Exception):
                 _LOGGER.debug("VAP summary unavailable (not supported on this device): %s", vap_summary)
                 vap_summary = {}
+
+            wifi_clients = results[10]
+            if isinstance(wifi_clients, Exception):
+                _LOGGER.debug("Wi-Fi client details unavailable: %s", wifi_clients)
+                wifi_clients = {}
 
             # Unpack results
             wan_status, clients, system_info, traffic_stats, location_info = results[:5]
@@ -292,6 +298,7 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "hc_failure_simulation": hc_failure_simulation,
                 "ap_status": ap_status,
                 "vap_summary": vap_summary,
+                "wifi_clients": wifi_clients,
             }
                 
         except Exception as e:
