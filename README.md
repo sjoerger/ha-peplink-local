@@ -52,7 +52,8 @@ This custom integration allows you to monitor and track your Peplink router from
   - Per-WAN-link tunnel sensors: State, RTT (ms), Download rate (kbit/s), Upload rate (kbit/s), and Loss
   - Virtual "SpeedFusion Connect" parent device groups all SFC peers under the router
 - **WAN Interface Controls**:
-  - Each WAN interface now has a [switch](WAN_SWITCHES.md) to enable/disable. [Added in v0.1.0]
+  - Each WAN interface has a switch to enable/disable the connection
+  - Each WAN interface has a priority select: Priority 1 (Highest), Priority 2, Priority 3, or Disabled — controls routing/failover order
 
 ## Requirements
 
