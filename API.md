@@ -485,6 +485,47 @@ Example response:
 - _ parameter is the current timestamp in milliseconds
 - use the same IP, but use /cgi-bin/MANGA/api.cgi?func=<function> instead of /api/<function>
 
+#### Reading SpeedFusion Connect / PepVPN status
+
+URL Example: `https://10.0.6.1/cgi-bin/MANGA/api.cgi?func=status.pepvpn&infoType=peer&size=1000&searchPattern=&_=<timestamp>`
+
+For tunnel stats, add `infoType=tunnel` and one `tunnelOption=<peerId>` per peer:
+`https://10.0.6.1/cgi-bin/MANGA/api.cgi?func=status.pepvpn&infoType=tunnel&size=1000&searchPattern=&tunnelOption=60000-1&_=<timestamp>`
+
+Peer response example:
+```json
+{
+  "stat": "ok",
+  "notice": { "status": "beta" },
+  "response": {
+    "peer": [
+      {
+        "serialNumber": "1150-DB4D-CA7C",
+        "status": "CONNECTED",
+        "name": "SFC-NYC-021",
+        "profileId": 60000,
+        "type": "SFC Client",
+        "username": "SFC-NYC-021",
+        "dataUseTcp": false,
+        "bandwidthLimit": {
+          "upload": { "value": 200000, "unit": "kbps" },
+          "download": { "value": 200000, "unit": "kbps" }
+        },
+        "wanSmoothing": "normal",
+        "latencyDiffCutoff": 500,
+        "peerId": "60000-1"
+      }
+    ]
+  }
+}
+```
+
+Notes:
+- SpeedFusion Connect peers use `profileId` values ≥ 60000 (virtual SFC profile)
+- Traditional site-to-site PepVPN peers use lower `profileId` values
+- `rx` and `tx` in the tunnel response are **cumulative bytes** since tunnel establishment; instantaneous rates must be computed as `delta_bytes × 8 / elapsed_seconds / 1000` (kbps)
+- Tunnel `state` values: `ACTIVE`, `STANDBY`, `WAN_DOWN`, `WAN_DISABLED`, `DETECTING`, `FAILURE`, etc.
+
 #### Reading traffic 
 
 URL Example: https://10.10.10.1/cgi-bin/MANGA/api.cgi?func=status.traffic&_=1741818098974

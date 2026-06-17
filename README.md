@@ -42,6 +42,12 @@ This custom integration allows you to monitor and track your Peplink router from
   - Total Download (data rate sensor)
   - Total Upload (data rate sensor)
 - **Configurable Polling**: Adjust how frequently the integration polls your router (default: 5 seconds)
+- **SpeedFusion Connect / PepVPN**:
+  - Automatic detection of SpeedFusion Connect peers (e.g. SFC cloud nodes)
+  - Per-peer device with Connection Status (binary), Status, Type, and WAN Smoothing sensors
+  - Bandwidth Limit Upload / Download sensors per peer
+  - Per-WAN-link tunnel sensors: State, RTT (ms), Download rate (kbit/s), Upload rate (kbit/s), and Loss
+  - Virtual "SpeedFusion Connect" parent device groups all SFC peers under the router
 - **WAN Interface Controls**:
   - Each WAN interface now has a [switch](WAN_SWITCHES.md) to enable/disable. [Added in v0.1.0]
 
