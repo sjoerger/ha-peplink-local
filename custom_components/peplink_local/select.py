@@ -83,6 +83,8 @@ class WanPrioritySelect(CoordinatorEntity, SelectEntity):
     @property
     def current_option(self) -> Optional[str]:
         priority = self._wan_data().get("priority")
+        if priority is None:
+            return "Disabled"
         option = _API_TO_OPTION.get(priority)
         if option is None:
             _LOGGER.warning("WAN %s has unrecognised priority value %r; defaulting to Priority 1", self._wan_id, priority)
