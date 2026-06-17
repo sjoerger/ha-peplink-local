@@ -36,6 +36,9 @@ This custom integration allows you to monitor and track your Peplink router from
   - Heading Sensor (degrees)
 - **Device Tracking**: Tracks client devices connected to your Peplink router
   - This fork differs from the [original integration](https://github.com/weirded/ha-peplink-local) in that clients are detected as home/not_home in Home Assistant
+  - Entities are keyed by device **name** (DHCP hostname), not MAC address — MAC rotation (common on Apple Watch and iPhone) is handled transparently without creating duplicate entities
+  - Devices that go offline are shown as `not_home` rather than disappearing; they reappear as `home` when they reconnect
+  - New devices are automatically detected during polling without requiring a restart
 - **Traffic Statistics**:
   - WAN Download (data rate sensor)
   - WAN Upload (data rate sensor)

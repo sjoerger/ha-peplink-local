@@ -1,11 +1,12 @@
 """Device tracker platform for Peplink Local integration."""
 import logging
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, Optional
 
 from homeassistant.components.device_tracker.const import SourceType
 from homeassistant.components.device_tracker import ScannerEntity, TrackerEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
@@ -27,79 +28,125 @@ async def async_setup_entry(
 ):
     """Set up Peplink device tracker based on a config entry."""
     coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
-    
+
     _LOGGER.debug("Setting up Peplink device trackers for entry: %s", entry.entry_id)
-    
-    # Wait for coordinator to get data
+
     await coordinator.async_config_entry_first_refresh()
-    
+
     entities = []
-    
-    # Add GPS device tracker for the router itself
+
+    # GPS tracker for the router itself
     location_info = coordinator.data.get("location_info", {})
-    has_gps = location_info.get("gps", False)
-    _LOGGER.debug("GPS capability check for device tracker: %s (has_gps=%s)", location_info, has_gps)
-    
-    if has_gps:
+    if location_info.get("gps", False):
         location_data = location_info.get("location", {})
         if location_data and "latitude" in location_data and "longitude" in location_data:
             _LOGGER.debug("Creating GPS device tracker for Peplink router")
-            entities.append(
-                PeplinkGPSTracker(
-                    coordinator=coordinator, 
-                    config_entry_id=entry.entry_id
-                )
+            entities.append(PeplinkGPSTracker(coordinator=coordinator, config_entry_id=entry.entry_id))
+
+    async_add_entities(entities, True)
+
+    # --- Client trackers ---
+    # Entities are keyed by device NAME (not MAC address).  This means MAC
+    # rotation — common on Apple Watch and iPhone — is handled transparently:
+    # _update_device_data searches coordinator data by name on every poll and
+    # updates _current_mac to whatever MAC the device is using right now.
+    known_names: set[str] = set()
+    known_uids: set[str] = set()
+
+    def _client_uid(name: str) -> str:
+        return f"{coordinator.host}_client_{name}"
+
+    def _add_clients(clients: list[dict]) -> None:
+        """Create entity objects for any device names not yet tracked."""
+        new_entities = []
+        for client in clients:
+            mac = client.get("mac")
+            name = client.get("name") or mac
+            if not name:
+                continue
+            if name in known_names:
+                _LOGGER.debug("Skipping duplicate client name %s", name)
+                continue
+            known_names.add(name)
+            known_uids.add(_client_uid(name))
+            _LOGGER.debug(
+                "Creating device tracker for client: %s (%s)",
+                name, mac or "offline",
             )
-        else:
-            _LOGGER.debug("Router has GPS capability but no valid location data")
-    else:
-        _LOGGER.debug("Router does not have GPS capability - skipping GPS tracker")
-    
-    # Track all known clients (including those that might go offline)
-    # We'll store known clients in hass.data to persist across updates
-    known_clients_key = f"{DOMAIN}_{entry.entry_id}_known_clients"
-    if known_clients_key not in hass.data:
-        hass.data[known_clients_key] = {}
-    
-    known_clients = hass.data[known_clients_key]
-    
-    # Create a device tracker for each client
-    if coordinator.data and "clients" in coordinator.data:
-        _LOGGER.debug("Client data found in coordinator: %s", coordinator.data["clients"])
-        client_data = coordinator.data["clients"]
-        
-        if "client" in client_data:
-            _LOGGER.debug("Clients found: %s", client_data["client"])
-            for client in client_data["client"]:
-                if "mac" in client:
-                    mac = client.get("mac")
-                    client_name = client.get("name", "Unknown")
-                    
-                    # Add to known clients if not already there
-                    if mac not in known_clients:
-                        _LOGGER.debug("Creating device tracker for NEW client: %s (%s)", client_name, mac)
-                        tracker = PeplinkClientTracker(
-                            coordinator,
-                            entry.entry_id,
-                            client_name,
-                            mac,
-                        )
-                        known_clients[mac] = tracker
-                        entities.append(tracker)
-                    else:
-                        _LOGGER.debug("Client %s (%s) already tracked", client_name, mac)
-                else:
-                    _LOGGER.warning("Client missing MAC address: %s", client)
-        else:
-            _LOGGER.warning("No 'client' key in client data: %s", client_data)
-    else:
-        _LOGGER.warning("No client data found in coordinator data: %s", coordinator.data)
-    
-    if entities:
-        _LOGGER.debug("Adding %d Peplink device trackers", len(entities))
-        async_add_entities(entities, True)
-    else:
-        _LOGGER.warning("No Peplink device trackers created")
+            new_entities.append(
+                PeplinkClientTracker(coordinator, entry.entry_id, name, mac)
+            )
+        if new_entities:
+            async_add_entities(new_entities)
+
+    entity_reg = er.async_get(hass)
+    prefix = f"{coordinator.host}_client_"
+    gps_uid = f"{coordinator.host}_gps"
+    gps_enabled = bool(coordinator.data.get("location_info", {}).get("gps", False))
+
+    pre_existing = list(er.async_entries_for_config_entry(entity_reg, entry.entry_id))
+
+    current_clients = coordinator.data.get("clients", {}).get("client", [])
+    current_names = {
+        (c.get("name") or c.get("mac"))
+        for c in current_clients
+        if c.get("name") or c.get("mac")
+    }
+
+    # Collect offline device names from existing name-format registry entries
+    # (those whose uid suffix has no colons) before touching anything.
+    offline_names = {
+        e.original_name
+        for e in pre_existing
+        if e.domain == "device_tracker"
+        and e.unique_id.startswith(prefix)
+        and e.original_name
+        and e.original_name not in current_names
+        and ":" not in e.unique_id[len(prefix):]  # name-format only
+    }
+
+    # Remove legacy MAC-format entries (uid suffix contains colons) NOW, before
+    # _add_clients triggers eager entity registration tasks.  If these entries
+    # remain in the registry when entity tasks run, HA sees entity_id conflicts
+    # and silently rejects the new name-format registrations.
+    for e in pre_existing:
+        if (e.domain == "device_tracker"
+                and e.unique_id.startswith(prefix)
+                and ":" in e.unique_id[len(prefix):]):
+            _LOGGER.debug("Removing legacy MAC-format tracker: %s", e.entity_id)
+            entity_reg.async_remove(e.entity_id)
+
+    # Add online clients.  With the registry now clear of MAC-format conflicts,
+    # entity tasks can register name-format entities without collisions.
+    _add_clients(current_clients)
+
+    # Restore offline devices so they show as "not_home" rather than disappearing.
+    if offline_names:
+        _LOGGER.debug("Restoring %d offline client trackers", len(offline_names))
+        _add_clients([{"name": n, "mac": None} for n in offline_names])
+
+    # Remove any remaining stale name-format entries (devices no longer tracked
+    # that were not restored as offline).  Use the pre-existing snapshot so
+    # freshly-registered entities are never touched.
+    to_remove = [
+        e.entity_id
+        for e in pre_existing
+        if e.domain == "device_tracker"
+        and not (gps_enabled and e.unique_id == gps_uid)
+        and e.unique_id not in known_uids
+        and ":" not in e.unique_id[len(prefix):]  # MAC-format already removed above
+    ]
+    for entity_id in to_remove:
+        _LOGGER.debug("Removing stale device tracker from registry: %s", entity_id)
+        entity_reg.async_remove(entity_id)
+
+    # Dynamically add new clients discovered on subsequent coordinator updates.
+    @callback
+    def _handle_coordinator_update() -> None:
+        new_clients = coordinator.data.get("clients", {}).get("client", [])
+        _add_clients(new_clients)
+
+    entry.async_on_unload(coordinator.async_add_listener(_handle_coordinator_update))
 
 
 class PeplinkGPSTracker(CoordinatorEntity, TrackerEntity):
@@ -107,11 +154,7 @@ class PeplinkGPSTracker(CoordinatorEntity, TrackerEntity):
 
     _attr_has_entity_name = True
 
-    def __init__(
-        self,
-        coordinator: DataUpdateCoordinator,
-        config_entry_id: str,
-    ):
+    def __init__(self, coordinator: DataUpdateCoordinator, config_entry_id: str):
         """Initialize the GPS tracker."""
         super().__init__(coordinator)
         self._config_entry_id = config_entry_id
@@ -120,181 +163,157 @@ class PeplinkGPSTracker(CoordinatorEntity, TrackerEntity):
         self._latitude = None
         self._longitude = None
         self._attributes = {}
-        
-        # Update initial state
         self._update_gps_data()
-    
+
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information about this Peplink router."""
-        # Get the coordinator
         coordinator = self.coordinator
-        
-        # Use device name from API if available
-        device_name = coordinator.device_name if hasattr(coordinator, "device_name") and coordinator.device_name else f"Peplink {coordinator.host}" if hasattr(coordinator, "host") else "Peplink"
-        
+        device_name = (coordinator.device_name if coordinator.device_name else f"Peplink {coordinator.host}")
         return DeviceInfo(
             identifiers={(DOMAIN, self._config_entry_id)},
             manufacturer="Peplink",
-            model=coordinator.model if hasattr(coordinator, "model") else "Router",
+            model=coordinator.model,
             name=device_name,
-            sw_version=coordinator.firmware if hasattr(coordinator, "firmware") else None,
+            sw_version=coordinator.firmware,
         )
 
     @property
     def source_type(self) -> str:
-        """Return the source type of the device."""
         return SourceType.GPS
-    
+
     @property
     def latitude(self) -> Optional[float]:
-        """Return the latitude of the device."""
         return self._latitude
-    
+
     @property
     def longitude(self) -> Optional[float]:
-        """Return the longitude of the device."""
         return self._longitude
-    
+
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
-        """Return the device state attributes."""
         return self._attributes
-    
+
     @callback
     def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
         self._update_gps_data()
         self.async_write_ha_state()
-    
+
     def _update_gps_data(self) -> None:
-        """Update GPS data from the coordinator."""
         self._latitude = None
         self._longitude = None
         self._attributes = {}
-        
-        if (
-            self.coordinator.data
-            and "location_info" in self.coordinator.data
-            and "location" in self.coordinator.data["location_info"]
-        ):
-            location_data = self.coordinator.data["location_info"]["location"]
+        location_info = self.coordinator.data.get("location_info", {}) if self.coordinator.data else {}
+        location_data = location_info.get("location", {})
+        if location_data:
             self._latitude = location_data.get("latitude")
             self._longitude = location_data.get("longitude")
-            
-            # Add accuracy if available
-            if "accuracy" in location_data:
-                self._attributes["gps_accuracy"] = location_data["accuracy"]
-                
-            # Add other attributes that might be useful
             for key, value in location_data.items():
-                if key not in ["latitude", "longitude", "accuracy"]:
+                if key not in ["latitude", "longitude"]:
                     self._attributes[key] = value
 
 
 class PeplinkClientTracker(CoordinatorEntity, ScannerEntity):
-    """Representation of a Peplink client device tracker."""
+    """Representation of a Peplink client device tracker.
+
+    Keyed by device NAME rather than MAC address so that MAC rotation
+    (Apple Watch, iPhone privacy MACs) is handled without creating duplicate
+    entities or requiring a restart.  _update_device_data finds the current
+    MAC by searching coordinator data by name on every coordinator update.
+    """
+
+    _attr_has_entity_name = True
 
     def __init__(
         self,
         coordinator: DataUpdateCoordinator,
         config_entry_id: str,
         client_name: str,
-        client_mac: str,
+        initial_mac: Optional[str],
     ):
         """Initialize the device tracker."""
         super().__init__(coordinator)
         self._config_entry_id = config_entry_id
         self._client_name = client_name
-        self._client_mac = client_mac
-        # Use IP address as the prefix for consistent entity IDs
-        self._attr_unique_id = f"{coordinator.host}_client_{client_mac}"
-        self._attr_name = f"{client_name}"
+        self._attr_unique_id = f"{coordinator.host}_client_{client_name}"
+        self._attr_name = client_name
+        self._current_mac: Optional[str] = initial_mac
         self._is_connected = False
         self._ip_address = None
-        self._mac_address = client_mac
-        self._attributes = {}
-        self._attr_has_entity_name = True
-        
-        # Update initial state
+        self._attributes: Dict[str, Any] = {}
         self._update_device_data()
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Return device information about this Peplink router."""
-        # Get the coordinator
         coordinator = self.coordinator
-        
-        # Use device name from API if available
-        device_name = coordinator.device_name if hasattr(coordinator, "device_name") and coordinator.device_name else f"Peplink {coordinator.host}" if hasattr(coordinator, "host") else "Peplink"
-        
+        device_name = coordinator.device_name or f"Peplink {coordinator.host}"
         return DeviceInfo(
             identifiers={(DOMAIN, self._config_entry_id)},
             manufacturer="Peplink",
-            model=coordinator.model if hasattr(coordinator, "model") else "Router",
+            model=coordinator.model,
             name=device_name,
-            sw_version=coordinator.firmware if hasattr(coordinator, "firmware") else None,
+            sw_version=coordinator.firmware,
         )
 
     @property
     def source_type(self) -> str:
-        """Return the source type of the device."""
         return SourceType.ROUTER
 
     @property
     def is_connected(self) -> bool:
-        """Return true if the device is connected to the network."""
         return self._is_connected
 
     @property
     def ip_address(self) -> Optional[str]:
-        """Return the IP address of the device."""
         return self._ip_address
 
     @property
     def mac_address(self) -> Optional[str]:
-        """Return the MAC address of the device."""
-        return self._mac_address
+        return self._current_mac
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
-        """Return the device state attributes."""
         return self._attributes
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
         self._update_device_data()
         self.async_write_ha_state()
 
     def _update_device_data(self) -> None:
-        """Update device data from the coordinator."""
-        # Default to disconnected
         self._is_connected = False
         self._ip_address = None
         self._attributes = {
             ATTR_CLIENT_NAME: self._client_name,
-            ATTR_CLIENT_MAC: self._client_mac,
+            ATTR_CLIENT_MAC: self._current_mac or "",
         }
-        
-        if (
-            self.coordinator.data
-            and "clients" in self.coordinator.data
-            and "client" in self.coordinator.data["clients"]
-        ):
-            for client in self.coordinator.data["clients"]["client"]:
-                if client.get("mac") == self._client_mac:
-                    # Check the 'active' field - this is what indicates if client is connected
-                    # The Peplink API uses 'active: true/false' not 'connected'
-                    self._is_connected = client.get("active", False)
-                    self._ip_address = client.get("ip")
-                    
-                    # Add all client attributes (including 'active' for visibility)
-                    for key, value in client.items():
-                        if key not in ["mac", "name", "ip"]:
-                            self._attributes[key] = value
-                    
-                    # Log state for debugging
-                    _LOGGER.debug("Client %s (%s) - active: %s", 
-                                self._client_name, self._client_mac, self._is_connected)
-                    break
+
+        if not self.coordinator.data:
+            return
+
+        # Find this device by name.  When the same name appears more than once
+        # (device has multiple DHCP leases from MAC rotation), prefer the active
+        # entry so the entity correctly shows "home" even after a MAC change.
+        matched = None
+        for client in self.coordinator.data.get("clients", {}).get("client", []):
+            if (client.get("name") or client.get("mac")) != self._client_name:
+                continue
+            if matched is None or client.get("active", False):
+                matched = client
+            if matched.get("active", False):
+                break
+
+        if matched:
+            new_mac = matched.get("mac")
+            if new_mac:
+                self._current_mac = new_mac
+            self._is_connected = matched.get("active", False)
+            self._ip_address = matched.get("ip")
+            for key, value in matched.items():
+                if key not in ["mac", "name", "ip"]:
+                    self._attributes[key] = value
+            self._attributes[ATTR_CLIENT_MAC] = self._current_mac or ""
+            _LOGGER.debug(
+                "Client %s (%s) active=%s",
+                self._client_name, self._current_mac, self._is_connected,
+            )
