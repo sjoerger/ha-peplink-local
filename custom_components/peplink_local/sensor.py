@@ -674,11 +674,11 @@ async def async_setup_entry(
         ])
 
     # Add per-band AP radio sensors (local AP only → main router device)
+    router_device = DeviceInfo(identifiers={(DOMAIN, coordinator.config_entry.entry_id)})
     ap_radio = coordinator.data.get("ap_radio", {})
     for ap_id, ap_data in ap_radio.items():
         if not ap_data.get("is_local_ap"):
             continue
-        router_device = DeviceInfo(identifiers={(DOMAIN, coordinator.config_entry.entry_id)})
         for band in ap_data.get("channel_info", {}).keys():
             entities.extend([
                 ApRadioChUtilSensor(coordinator, ap_id, band, router_device),
@@ -688,6 +688,16 @@ async def async_setup_entry(
                 ApRadioNearbyDeviceSensor(coordinator, ap_id, band, router_device),
                 ApRadioTxPowerSensor(coordinator, ap_id, band, router_device),
             ])
+
+    # Add average RSSI sensors per band (derived from wifi_clients data)
+    wifi_clients = coordinator.data.get("wifi_clients", {})
+    present_bands: set[str] = set()
+    for client in wifi_clients.values():
+        band = _freq_to_band(client.get("freq", 0))
+        if band:
+            present_bands.add(band)
+    for band in present_bands:
+        entities.append(BandAvgRssiSensor(coordinator, band, router_device))
 
     # Add all entities
     async_add_entities(entities)
@@ -1256,6 +1266,17 @@ def _band_slug(band: str) -> str:
     return band.lower().replace(" ", "").replace(".", "_")
 
 
+def _freq_to_band(freq_mhz: int) -> str | None:
+    """Map a channel frequency in MHz to a human-readable band label."""
+    if 2400 <= freq_mhz < 2500:
+        return "2.4 GHz"
+    if 5000 <= freq_mhz < 5950:
+        return "5 GHz"
+    if freq_mhz >= 5950:
+        return "6 GHz"
+    return None
+
+
 class _ApRadioSensorBase(CoordinatorEntity, SensorEntity):
     """Shared base for per-band AP radio sensors."""
 
@@ -1382,3 +1403,37 @@ class ApRadioTxPowerSensor(_ApRadioSensorBase):
     @property
     def native_value(self) -> int | None:
         return self._band_data().get("power")
+
+
+class BandAvgRssiSensor(CoordinatorEntity, SensorEntity):
+    """Average RSSI of all connected Wi-Fi clients on a given band."""
+
+    _attr_has_entity_name = True
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "dBm"
+    _attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
+    _attr_icon = "mdi:wifi-strength-2"
+
+    def __init__(self, coordinator, band: str, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator)
+        self._band = band
+        self._attr_name = f"{band} Average Client RSSI"
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_{_band_slug(band)}_avg_rssi"
+        self._attr_device_info = device_info
+
+    @property
+    def native_value(self) -> float | None:
+        clients = self.coordinator.data.get("wifi_clients", {})
+        rssi_values = [
+            c["rssi"]
+            for c in clients.values()
+            if c.get("is_assoc") and _freq_to_band(c.get("freq", 0)) == self._band
+            and c.get("rssi") is not None
+        ]
+        if not rssi_values:
+            return None
+        return round(sum(rssi_values) / len(rssi_values), 1)
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.last_update_success
