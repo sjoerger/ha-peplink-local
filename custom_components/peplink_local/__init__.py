@@ -186,6 +186,9 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.api.get_vap_summary(),
                 self.api.get_wifi_clients(),
                 self.api.get_ap_group_status(),
+                self.api.get_watchdog_status(),
+                self.api.get_experimental_config(),
+                self.api.get_bluetooth_status(),
                 return_exceptions=True,
             )
 
@@ -229,6 +232,21 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if isinstance(ap_radio, Exception):
                 _LOGGER.debug("AP radio status unavailable (not supported on this device): %s", ap_radio)
                 ap_radio = {}
+
+            watchdog = results[12]
+            if isinstance(watchdog, Exception):
+                _LOGGER.debug("Watchdog status unavailable: %s", watchdog)
+                watchdog = {}
+
+            experimental = results[13]
+            if isinstance(experimental, Exception):
+                _LOGGER.debug("Experimental config unavailable: %s", experimental)
+                experimental = {}
+
+            bluetooth = results[14]
+            if isinstance(bluetooth, Exception):
+                _LOGGER.debug("Bluetooth status unavailable: %s", bluetooth)
+                bluetooth = {}
 
             # Unpack results
             wan_status, clients, system_info, traffic_stats, location_info = results[:5]
@@ -306,6 +324,9 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "vap_summary": vap_summary,
                 "wifi_clients": wifi_clients,
                 "ap_radio": ap_radio,
+                "watchdog": watchdog,
+                "experimental": experimental,
+                "bluetooth": bluetooth,
             }
                 
         except Exception as e:

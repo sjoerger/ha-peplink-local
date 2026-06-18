@@ -73,6 +73,12 @@ This custom integration allows you to monitor and track your Peplink router from
 - **WAN Interface Controls**:
   - Each WAN interface has a switch to enable/disable the connection
   - Each WAN interface has a priority select: Priority 1 (Highest), Priority 2, Priority 3, or Disabled — controls routing/failover order
+- **Router Support Controls** (diagnostic switches, shown only when supported by firmware):
+  - Watchdog — enable/disable the router watchdog
+  - DPI Support — enable/disable the Deep Packet Inspection engine
+  - Wi-Fi BSSID Steering — enable/disable BSSID steering for seamless roaming
+  - Starlink gRPC Proxy — enable/disable the Starlink gRPC API proxy
+  - Bluetooth — enable/disable Bluetooth
 
 ## Requirements
 

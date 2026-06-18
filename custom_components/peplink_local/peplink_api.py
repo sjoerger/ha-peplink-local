@@ -998,6 +998,89 @@ class PeplinkAPI:
         )
         return response.get("stat") == "ok"
 
+    async def get_watchdog_status(self) -> dict[str, Any]:
+        """Return watchdog support and enabled state."""
+        response = await self._make_api_request(
+            "system.action",
+            public_api=False,
+            action="watchdog",
+        )
+        if response.get("stat") != "ok":
+            return {}
+        return {
+            "support": response.get("response", {}).get("support", False),
+            "enable": response.get("response", {}).get("enable", False),
+        }
+
+    async def set_watchdog_enabled(self, enable: bool) -> bool:
+        """Enable or disable the router watchdog."""
+        response = await self._make_api_request(
+            "system.action",
+            method="POST",
+            public_api=False,
+            data={"action": "watchdog", "enable": enable},
+        )
+        return response.get("stat") == "ok"
+
+    async def get_experimental_config(self) -> dict[str, Any]:
+        """Return experimental feature flags (DPI, BSSID Steering, Starlink gRPC proxy)."""
+        response = await self._make_api_request("config.experimental", public_api=False)
+        if response.get("stat") != "ok":
+            return {}
+        resp = response.get("response", {})
+        return {
+            "dpi": resp.get("dpi", {}),
+            "bssidSteering": resp.get("bssidSteering", {}),
+            "starlinkApiProxy": resp.get("starlinkApiProxy", {}),
+        }
+
+    async def set_dpi_enabled(self, enable: bool) -> bool:
+        """Enable or disable the DPI engine."""
+        response = await self._make_api_request(
+            "config.experimental",
+            method="POST",
+            public_api=False,
+            data={"dpi": {"enable": enable}},
+        )
+        return response.get("stat") == "ok"
+
+    async def set_bssid_steering_enabled(self, enable: bool) -> bool:
+        """Enable or disable Wi-Fi BSSID steering."""
+        response = await self._make_api_request(
+            "config.experimental",
+            method="POST",
+            public_api=False,
+            data={"bssidSteering": {"enable": enable}},
+        )
+        return response.get("stat") == "ok"
+
+    async def set_starlink_proxy_enabled(self, enable: bool) -> bool:
+        """Enable or disable the Starlink gRPC API proxy."""
+        response = await self._make_api_request(
+            "config.experimental",
+            method="POST",
+            public_api=False,
+            data={"starlinkApiProxy": {"enable": enable}},
+        )
+        return response.get("stat") == "ok"
+
+    async def get_bluetooth_status(self) -> dict[str, Any]:
+        """Return Bluetooth enabled state."""
+        response = await self._make_api_request("config.bluetooth", public_api=False)
+        if response.get("stat") != "ok":
+            return {}
+        return {"enable": response.get("response", {}).get("enable", False)}
+
+    async def set_bluetooth_enabled(self, enable: bool) -> bool:
+        """Enable or disable Bluetooth."""
+        response = await self._make_api_request(
+            "config.bluetooth",
+            method="POST",
+            public_api=False,
+            data={"enable": enable},
+        )
+        return response.get("stat") == "ok"
+
     async def get_wan_health_check(self) -> dict[str, Any]:
         """Fetch WAN logical health check status from the support data.cgi endpoint.
 

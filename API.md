@@ -952,3 +952,61 @@ Example response:
   }
 }
 ```
+
+#### Reading / Writing Watchdog State
+
+GET: `https://10.10.10.1/cgi-bin/MANGA/api.cgi?func=system.action&action=watchdog&_=<ts>`
+
+Example response:
+```json
+{
+  "stat": "ok",
+  "response": {
+    "support": true,
+    "enable": false
+  }
+}
+```
+
+POST (to enable): `https://10.10.10.1/cgi-bin/MANGA/api.cgi?func=system.action`
+Body: `{"action": "watchdog", "enable": true}`
+
+#### Reading / Writing Experimental Features (DPI, BSSID Steering, Starlink gRPC Proxy)
+
+GET: `https://10.10.10.1/cgi-bin/MANGA/api.cgi?func=config.experimental&_=<ts>`
+
+Example response:
+```json
+{
+  "stat": "ok",
+  "response": {
+    "dpi": { "support": true, "enable": false },
+    "bssidSteering": { "enable": false },
+    "starlinkApiProxy": { "enable": false }
+  }
+}
+```
+
+POST (to enable DPI): `https://10.10.10.1/cgi-bin/MANGA/api.cgi?func=config.experimental`
+Body: `{"dpi": {"enable": true}}`
+
+POST (to enable BSSID Steering): same endpoint, body `{"bssidSteering": {"enable": true}}`
+
+POST (to enable Starlink gRPC Proxy): same endpoint, body `{"starlinkApiProxy": {"enable": true}}`
+
+#### Reading / Writing Bluetooth State
+
+GET: `https://10.10.10.1/cgi-bin/MANGA/api.cgi?func=config.bluetooth&_=<ts>`
+
+Example response:
+```json
+{
+  "stat": "ok",
+  "response": {
+    "enable": false
+  }
+}
+```
+
+POST (to enable): `https://10.10.10.1/cgi-bin/MANGA/api.cgi?func=config.bluetooth`
+Body: `{"enable": true}`
