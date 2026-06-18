@@ -443,5 +443,15 @@ class PortLinkBinarySensor(CoordinatorEntity, BinarySensorEntity):
         return data.get("linkUp", False)
 
     @property
+    def extra_state_attributes(self) -> dict:
+        data = self._port_data()
+        attrs = {}
+        if "speed" in data:
+            attrs["speed"] = data["speed"]
+        if "autoSpeed" in data:
+            attrs["auto_speed"] = data["autoSpeed"]
+        return attrs
+
+    @property
     def available(self) -> bool:
         return self.coordinator.last_update_success and bool(self._port_data())

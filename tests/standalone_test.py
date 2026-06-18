@@ -272,6 +272,34 @@ async def test_api(router_ip, username, password, verify_ssl=False):
             _LOGGER.error("Error during port_wan_status test: %s", e)
             test_results["port_wan_status"] = f"FAILED: {str(e)}"
 
+        # 11. LAN port status with lite=no (check for richer fields)
+        _LOGGER.info("Fetching LAN port status (lite=no)...")
+        try:
+            raw = await api._make_api_request("status.port.lan", public_api=False, lite="no")
+            _LOGGER.info("LAN port status lite=no (raw): %s", json.dumps(raw, indent=2))
+
+            with open(output_dir / "port_lan_status_lite_no.json", "w") as f:
+                json.dump(raw, f, indent=2)
+
+            test_results["port_lan_status_lite_no"] = "PASSED"
+        except Exception as e:
+            _LOGGER.error("Error during port_lan_status_lite_no test: %s", e)
+            test_results["port_lan_status_lite_no"] = f"FAILED: {str(e)}"
+
+        # 12. WAN port status with lite=no (check for richer fields)
+        _LOGGER.info("Fetching WAN port status (lite=no)...")
+        try:
+            raw = await api._make_api_request("status.port.wan", public_api=False, lite="no")
+            _LOGGER.info("WAN port status lite=no (raw): %s", json.dumps(raw, indent=2))
+
+            with open(output_dir / "port_wan_status_lite_no.json", "w") as f:
+                json.dump(raw, f, indent=2)
+
+            test_results["port_wan_status_lite_no"] = "PASSED"
+        except Exception as e:
+            _LOGGER.error("Error during port_wan_status_lite_no test: %s", e)
+            test_results["port_wan_status_lite_no"] = f"FAILED: {str(e)}"
+
         _LOGGER.info("All API tests completed")
         _LOGGER.info("Output files saved to %s", output_dir)
         
