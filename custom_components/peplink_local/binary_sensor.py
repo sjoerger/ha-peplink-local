@@ -173,6 +173,16 @@ async def async_setup_entry(
         if ap_data.get("is_local_ap"):
             entities.append(ApRadioOnlineBinarySensor(coordinator, ap_id))
 
+    # Add port link binary sensors for LAN and WAN physical ports
+    router_device = DeviceInfo(identifiers={(DOMAIN, coordinator.config_entry.entry_id)})
+    for port_type, data_key in (("lan", "port_lan"), ("wan", "port_wan")):
+        port_data = coordinator.data.get(data_key, {})
+        order = port_data.get("order", [])
+        for port_id in order:
+            port_info = port_data.get(str(port_id))
+            if isinstance(port_info, dict):
+                entities.append(PortLinkBinarySensor(coordinator, port_type, str(port_id), router_device))
+
     async_add_entities(entities)
 
 
@@ -399,3 +409,49 @@ class ApRadioOnlineBinarySensor(CoordinatorEntity, BinarySensorEntity):
     @property
     def available(self) -> bool:
         return self.coordinator.last_update_success and bool(self._ap_data())
+
+
+class PortLinkBinarySensor(CoordinatorEntity, BinarySensorEntity):
+    """Binary sensor showing physical link status of a LAN or WAN port."""
+
+    _attr_has_entity_name = True
+    _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:ethernet"
+
+    def __init__(self, coordinator, port_type: str, port_id: str, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator)
+        self._port_type = port_type
+        self._port_id = port_id
+        self._attr_device_info = device_info
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_port_{port_type}_{port_id}_link"
+
+    def _port_data(self) -> dict:
+        return self.coordinator.data.get(f"port_{self._port_type}", {}).get(self._port_id, {})
+
+    @property
+    def name(self) -> str:
+        data = self._port_data()
+        port_name = data.get("name") or f"{self._port_type.upper()} Port {self._port_id}"
+        return f"{port_name} Link"
+
+    @property
+    def is_on(self) -> bool | None:
+        data = self._port_data()
+        if not data:
+            return None
+        return data.get("linkUp", False)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        data = self._port_data()
+        attrs = {}
+        if "speed" in data:
+            attrs["speed"] = data["speed"]
+        if "autoSpeed" in data:
+            attrs["auto_speed"] = data["autoSpeed"]
+        return attrs
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.last_update_success and bool(self._port_data())
