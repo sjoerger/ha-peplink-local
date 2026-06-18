@@ -275,7 +275,7 @@ class WatchdogSwitch(CoordinatorEntity, SwitchEntity):
 
     _attr_has_entity_name = True
     _attr_name = "Watchdog"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_category = EntityCategory.CONFIG
     _attr_icon = "mdi:dog"
 
     def __init__(self, coordinator, device_info: DeviceInfo) -> None:
@@ -311,7 +311,7 @@ class DpiSwitch(CoordinatorEntity, SwitchEntity):
 
     _attr_has_entity_name = True
     _attr_name = "DPI Support"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_category = EntityCategory.CONFIG
     _attr_icon = "mdi:shield-search"
 
     def __init__(self, coordinator, device_info: DeviceInfo) -> None:
@@ -347,7 +347,7 @@ class BssidSteeringSwitch(CoordinatorEntity, SwitchEntity):
 
     _attr_has_entity_name = True
     _attr_name = "Wi-Fi BSSID Steering"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_category = EntityCategory.CONFIG
     _attr_icon = "mdi:wifi-arrow-left-right"
 
     def __init__(self, coordinator, device_info: DeviceInfo) -> None:
@@ -383,7 +383,7 @@ class StarlinkProxySwitch(CoordinatorEntity, SwitchEntity):
 
     _attr_has_entity_name = True
     _attr_name = "Starlink gRPC Proxy"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_category = EntityCategory.CONFIG
     _attr_icon = "mdi:satellite-variant"
 
     def __init__(self, coordinator, device_info: DeviceInfo) -> None:
@@ -419,7 +419,7 @@ class BluetoothSwitch(CoordinatorEntity, SwitchEntity):
 
     _attr_has_entity_name = True
     _attr_name = "Bluetooth"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_category = EntityCategory.CONFIG
     _attr_icon = "mdi:bluetooth"
 
     def __init__(self, coordinator, device_info: DeviceInfo) -> None:
