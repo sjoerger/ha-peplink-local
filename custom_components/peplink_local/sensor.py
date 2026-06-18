@@ -673,6 +673,22 @@ async def async_setup_entry(
             VapSecuritySensor(coordinator, vap_id, vap_device),
         ])
 
+    # Add per-band AP radio sensors (local AP only → main router device)
+    ap_radio = coordinator.data.get("ap_radio", {})
+    for ap_id, ap_data in ap_radio.items():
+        if not ap_data.get("is_local_ap"):
+            continue
+        router_device = DeviceInfo(identifiers={(DOMAIN, coordinator.config_entry.entry_id)})
+        for band in ap_data.get("channel_info", {}).keys():
+            entities.extend([
+                ApRadioChUtilSensor(coordinator, ap_id, band, router_device),
+                ApRadioChannelSensor(coordinator, ap_id, band, router_device),
+                ApRadioClientsSensor(coordinator, ap_id, band, router_device),
+                ApRadioNearbyApSensor(coordinator, ap_id, band, router_device),
+                ApRadioNearbyDeviceSensor(coordinator, ap_id, band, router_device),
+                ApRadioTxPowerSensor(coordinator, ap_id, band, router_device),
+            ])
+
     # Add all entities
     async_add_entities(entities)
 
@@ -1233,3 +1249,136 @@ class VapSecuritySensor(_VapSensorBase):
     @property
     def native_value(self) -> str | None:
         return self._vap_data().get("security")
+
+
+def _band_slug(band: str) -> str:
+    """Convert a band label like '2.4 GHz' to a uid-safe slug like '2_4ghz'."""
+    return band.lower().replace(" ", "").replace(".", "_")
+
+
+class _ApRadioSensorBase(CoordinatorEntity, SensorEntity):
+    """Shared base for per-band AP radio sensors."""
+
+    _attr_has_entity_name = True
+
+    def __init__(
+        self, coordinator, ap_id: str, band: str, device_info: DeviceInfo
+    ) -> None:
+        super().__init__(coordinator)
+        self._ap_id = ap_id
+        self._band = band
+        self._attr_device_info = device_info
+
+    def _band_data(self) -> dict:
+        return (
+            self.coordinator.data.get("ap_radio", {})
+            .get(self._ap_id, {})
+            .get("channel_info", {})
+            .get(self._band, {})
+        )
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.last_update_success and bool(self._band_data())
+
+
+class ApRadioChUtilSensor(_ApRadioSensorBase):
+    """Channel utilization percentage for one radio band."""
+
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_icon = "mdi:wifi-strength-2"
+
+    def __init__(self, coordinator, ap_id: str, band: str, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator, ap_id, band, device_info)
+        self._attr_name = f"{band} Channel Utilization"
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_ap{ap_id}_{_band_slug(band)}_ch_util"
+
+    @property
+    def native_value(self) -> float | None:
+        return self._band_data().get("ch_util")
+
+
+class ApRadioChannelSensor(_ApRadioSensorBase):
+    """Active Wi-Fi channel for one radio band."""
+
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:sine-wave"
+
+    def __init__(self, coordinator, ap_id: str, band: str, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator, ap_id, band, device_info)
+        self._attr_name = f"{band} Channel"
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_ap{ap_id}_{_band_slug(band)}_channel"
+
+    @property
+    def native_value(self) -> int | None:
+        return self._band_data().get("channel")
+
+
+class ApRadioClientsSensor(_ApRadioSensorBase):
+    """Total clients connected on one radio band across all SSIDs."""
+
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:account-multiple"
+
+    def __init__(self, coordinator, ap_id: str, band: str, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator, ap_id, band, device_info)
+        self._attr_name = f"{band} Clients"
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_ap{ap_id}_{_band_slug(band)}_clients"
+
+    @property
+    def native_value(self) -> int | None:
+        return self._band_data().get("clients")
+
+
+class ApRadioNearbyApSensor(_ApRadioSensorBase):
+    """Number of competing APs visible on this band."""
+
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:access-point-network"
+
+    def __init__(self, coordinator, ap_id: str, band: str, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator, ap_id, band, device_info)
+        self._attr_name = f"{band} Nearby APs"
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_ap{ap_id}_{_band_slug(band)}_nearby_ap"
+
+    @property
+    def native_value(self) -> int | None:
+        return self._band_data().get("nearby_ap")
+
+
+class ApRadioNearbyDeviceSensor(_ApRadioSensorBase):
+    """Number of total devices visible on this band."""
+
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:devices"
+
+    def __init__(self, coordinator, ap_id: str, band: str, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator, ap_id, band, device_info)
+        self._attr_name = f"{band} Nearby Devices"
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_ap{ap_id}_{_band_slug(band)}_nearby_device"
+
+    @property
+    def native_value(self) -> int | None:
+        return self._band_data().get("nearby_device")
+
+
+class ApRadioTxPowerSensor(_ApRadioSensorBase):
+    """Transmit power for one radio band in dBm."""
+
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "dBm"
+    _attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, ap_id: str, band: str, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator, ap_id, band, device_info)
+        self._attr_name = f"{band} Transmit Power"
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_ap{ap_id}_{_band_slug(band)}_tx_power"
+
+    @property
+    def native_value(self) -> int | None:
+        return self._band_data().get("power")

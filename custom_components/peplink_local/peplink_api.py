@@ -1067,6 +1067,25 @@ class PeplinkAPI:
         vap_info = response.get("response", {}).get("vap_info", {})
         return {str(k): v for k, v in vap_info.items()}
 
+    async def get_ap_group_status(self) -> dict[str, Any]:
+        """Fetch per-AP radio/band stats via data.cgi?option=extap_ap_status.
+
+        Returns a dict keyed by ap_id (str), each value containing the full
+        ap_info block including channel_info per band and is_local_ap flag.
+        """
+        ts = int(time.time() * 1000)
+        response = await self._api_request(
+            f"/cgi-bin/MANGA/data.cgi?option=extap_ap_status&_={ts}"
+        )
+        result = {}
+        for group in response.get("group_info", {}).values():
+            if not isinstance(group, dict):
+                continue
+            for ap_id, ap_data in group.get("ap_info", {}).items():
+                if isinstance(ap_data, dict):
+                    result[str(ap_id)] = ap_data
+        return result
+
     async def close(self) -> None:
         """Close the session if we created it."""
         if self._own_session and self._session is not None:

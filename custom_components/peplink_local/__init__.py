@@ -185,6 +185,7 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.api.get_ap_status(),
                 self.api.get_vap_summary(),
                 self.api.get_wifi_clients(),
+                self.api.get_ap_group_status(),
                 return_exceptions=True,
             )
 
@@ -223,6 +224,11 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if isinstance(wifi_clients, Exception):
                 _LOGGER.debug("Wi-Fi client details unavailable: %s", wifi_clients)
                 wifi_clients = {}
+
+            ap_radio = results[11]
+            if isinstance(ap_radio, Exception):
+                _LOGGER.debug("AP radio status unavailable (not supported on this device): %s", ap_radio)
+                ap_radio = {}
 
             # Unpack results
             wan_status, clients, system_info, traffic_stats, location_info = results[:5]
@@ -299,6 +305,7 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "ap_status": ap_status,
                 "vap_summary": vap_summary,
                 "wifi_clients": wifi_clients,
+                "ap_radio": ap_radio,
             }
                 
         except Exception as e:
