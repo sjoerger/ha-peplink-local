@@ -1010,3 +1010,84 @@ Example response:
 
 POST (to enable): `https://10.10.10.1/cgi-bin/MANGA/api.cgi?func=config.bluetooth`
 Body: `{"enable": true}`
+
+#### Reading LAN Port Physical Status
+
+GET: `https://10.10.10.1/cgi-bin/MANGA/api.cgi?func=status.port.lan&lite=no&_=<ts>`
+
+Use `lite=no` to include negotiated link speed. Without it, `speed` and `autoSpeed` are omitted.
+
+Example response:
+```json
+{
+  "stat": "ok",
+  "response": {
+    "1": {
+      "linkUp": true,
+      "enable": true,
+      "autoSpeed": true,
+      "speed": "1000FD",
+      "hardwareInfo": {
+        "portType": "RJ45",
+        "supportSpeed": ["10HD", "10FD", "100HD", "100FD", "1000FD"]
+      },
+      "name": "minisrv"
+    },
+    "2": {
+      "linkUp": false,
+      "enable": true,
+      "autoSpeed": false,
+      "hardwareInfo": {
+        "portType": "RJ45",
+        "supportSpeed": ["10HD", "10FD", "100HD", "100FD", "1000FD"]
+      },
+      "name": "LAN Port 2"
+    },
+    "order": [1, 2, 3, 4],
+    "reference": {
+      "vlanIdInfo": {
+        "0": { "id": 0, "name": "" }
+      }
+    }
+  }
+}
+```
+
+Notes:
+- Keys are port IDs (strings). `order` lists port IDs in display order; `reference` and `hardwareInfo` are metadata, not per-port state.
+- `speed` is only present when `linkUp` is `true`. Format: `"<speed><duplex>"` e.g. `"1000FD"` (1 Gbps full-duplex), `"100HD"` (100 Mbps half-duplex).
+- `name` reflects the custom label set on the router's admin UI.
+
+#### Reading WAN Port Physical Status
+
+GET: `https://10.10.10.1/cgi-bin/MANGA/api.cgi?func=status.port.wan&lite=no&_=<ts>`
+
+Example response:
+```json
+{
+  "stat": "ok",
+  "response": {
+    "1": {
+      "linkUp": true,
+      "enable": true,
+      "autoSpeed": true,
+      "speed": "1000FD",
+      "name": "WAN 1",
+      "asLan": false
+    },
+    "2": {
+      "linkUp": true,
+      "enable": true,
+      "autoSpeed": true,
+      "speed": "1000FD",
+      "name": "WAN 2",
+      "asLan": false
+    },
+    "order": [1, 2]
+  }
+}
+```
+
+Notes:
+- Same structure as LAN port status. `asLan` indicates whether the WAN port is currently configured to act as a LAN port.
+- This reflects physical link state only — not WAN internet connectivity (use `status.wan.connection` for that).

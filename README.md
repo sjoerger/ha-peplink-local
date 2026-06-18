@@ -82,6 +82,7 @@ This custom integration allows you to monitor and track your Peplink router from
 - **Port Link Status** (diagnostic binary sensors, one per physical port):
   - LAN port link sensors — shows connected/disconnected per LAN port; uses the port's custom label if set on the router
   - WAN port link sensors — shows physical cable link state, separate from WAN connection/internet status
+  - Each sensor includes `speed` (e.g. `1000FD`) and `auto_speed` attributes when the port is linked up
 
 ## Requirements
 
