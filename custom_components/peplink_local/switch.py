@@ -61,6 +61,12 @@ async def async_setup_entry(
             initial_state=connection.get("enable", False),
         ))
 
+    # Add watchdog switch if supported
+    watchdog = coordinator.data.get("watchdog", {})
+    if watchdog.get("support"):
+        router_device = DeviceInfo(identifiers={(DOMAIN, coordinator.config_entry.entry_id)})
+        entities.append(WatchdogSwitch(coordinator, router_device))
+
     # Add health check failure simulation switches for WANs with active health checks
     for wan_id, hc_data in coordinator.data.get("wan_health_check", {}).items():
         wan_name = hc_data.get("name", f"WAN {wan_id}")
@@ -246,5 +252,41 @@ class WanHCFailureSimSwitch(CoordinatorEntity, SwitchEntity):
                         break
             except Exception:
                 pass
-        
+
         return attrs
+
+
+class WatchdogSwitch(CoordinatorEntity, SwitchEntity):
+    """Switch to enable/disable the router watchdog."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Watchdog"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:dog"
+
+    def __init__(self, coordinator, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_watchdog"
+        self._attr_device_info = device_info
+
+    @property
+    def is_on(self) -> bool | None:
+        return self.coordinator.data.get("watchdog", {}).get("enable")
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.last_update_success and bool(
+            self.coordinator.data.get("watchdog")
+        )
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        if await self.coordinator.api.set_watchdog_enabled(True):
+            await self.coordinator.async_request_refresh()
+        else:
+            _LOGGER.error("Failed to enable watchdog")
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        if await self.coordinator.api.set_watchdog_enabled(False):
+            await self.coordinator.async_request_refresh()
+        else:
+            _LOGGER.error("Failed to disable watchdog")

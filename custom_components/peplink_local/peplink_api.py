@@ -998,6 +998,30 @@ class PeplinkAPI:
         )
         return response.get("stat") == "ok"
 
+    async def get_watchdog_status(self) -> dict[str, Any]:
+        """Return watchdog support and enabled state."""
+        response = await self._make_api_request(
+            "system.action",
+            public_api=False,
+            action="watchdog",
+        )
+        if response.get("stat") != "ok":
+            return {}
+        return {
+            "support": response.get("response", {}).get("support", False),
+            "enable": response.get("response", {}).get("enable", False),
+        }
+
+    async def set_watchdog_enabled(self, enable: bool) -> bool:
+        """Enable or disable the router watchdog."""
+        response = await self._make_api_request(
+            "system.action",
+            method="POST",
+            public_api=False,
+            data={"action": "watchdog", "enable": enable},
+        )
+        return response.get("stat") == "ok"
+
     async def get_wan_health_check(self) -> dict[str, Any]:
         """Fetch WAN logical health check status from the support data.cgi endpoint.
 
