@@ -1266,13 +1266,17 @@ def _band_slug(band: str) -> str:
     return band.lower().replace(" ", "").replace(".", "_")
 
 
-def _freq_to_band(freq_mhz: int) -> str | None:
+def _freq_to_band(freq_mhz) -> str | None:
     """Map a channel frequency in MHz to a human-readable band label."""
-    if 2400 <= freq_mhz < 2500:
+    try:
+        freq = int(freq_mhz)
+    except (TypeError, ValueError):
+        return None
+    if 2400 <= freq < 2500:
         return "2.4 GHz"
-    if 5000 <= freq_mhz < 5950:
+    if 5000 <= freq < 5950:
         return "5 GHz"
-    if freq_mhz >= 5950:
+    if freq >= 5950:
         return "6 GHz"
     return None
 
