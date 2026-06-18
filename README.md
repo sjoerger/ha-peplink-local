@@ -79,6 +79,9 @@ This custom integration allows you to monitor and track your Peplink router from
   - Wi-Fi BSSID Steering — enable/disable BSSID steering for seamless roaming
   - Starlink gRPC Proxy — enable/disable the Starlink gRPC API proxy
   - Bluetooth — enable/disable Bluetooth
+- **Port Link Status** (diagnostic binary sensors, one per physical port):
+  - LAN port link sensors — shows connected/disconnected per LAN port; uses the port's custom label if set on the router
+  - WAN port link sensors — shows physical cable link state, separate from WAN connection/internet status
 
 ## Requirements
 

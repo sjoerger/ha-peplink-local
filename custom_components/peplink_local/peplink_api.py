@@ -1169,6 +1169,30 @@ class PeplinkAPI:
                     result[str(ap_id)] = ap_data
         return result
 
+    async def get_port_lan_status(self) -> dict[str, Any]:
+        """Fetch LAN port physical status via status.port.lan CGI.
+
+        Returns the raw 'response' dict from the API. Shape is router-dependent
+        but typically contains a list/dict of port entries with keys like:
+        linkUp, speed, poe (status/power), stp (state), traffic (upload/download),
+        allowedVlanId, linkAggregation/lacp, auth, and internet.connect.
+        """
+        response = await self._make_api_request("status.port.lan", public_api=False)
+        if response.get("stat") != "ok":
+            return {}
+        return response.get("response", {})
+
+    async def get_port_wan_status(self) -> dict[str, Any]:
+        """Fetch WAN port physical status via status.port.wan CGI.
+
+        Returns the raw 'response' dict from the API. Shape mirrors
+        get_port_lan_status but for WAN-side physical ports.
+        """
+        response = await self._make_api_request("status.port.wan", public_api=False)
+        if response.get("stat") != "ok":
+            return {}
+        return response.get("response", {})
+
     async def close(self) -> None:
         """Close the session if we created it."""
         if self._own_session and self._session is not None:

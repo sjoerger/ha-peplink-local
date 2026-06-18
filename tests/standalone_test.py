@@ -231,19 +231,47 @@ async def test_api(router_ip, username, password, verify_ssl=False):
         try:
             location_info = await api.get_location()
             _LOGGER.info("Location information: %s", json.dumps(location_info, indent=2))
-            
+
             # Verify the location information structure
             verify_location(location_info)
-            
+
             # Save to file
             with open(output_dir / "location_info.json", "w") as f:
                 json.dump(location_info, f, indent=2)
-                
+
             test_results["location"] = "PASSED"
         except Exception as e:
             _LOGGER.error("Error during location test: %s", e)
             test_results["location"] = f"FAILED: {str(e)}"
-        
+
+        # 9. LAN port physical status
+        _LOGGER.info("Fetching LAN port status...")
+        try:
+            port_lan = await api.get_port_lan_status()
+            _LOGGER.info("LAN port status: %s", json.dumps(port_lan, indent=2))
+
+            with open(output_dir / "port_lan_status.json", "w") as f:
+                json.dump(port_lan, f, indent=2)
+
+            test_results["port_lan_status"] = "PASSED"
+        except Exception as e:
+            _LOGGER.error("Error during port_lan_status test: %s", e)
+            test_results["port_lan_status"] = f"FAILED: {str(e)}"
+
+        # 10. WAN port physical status
+        _LOGGER.info("Fetching WAN port status...")
+        try:
+            port_wan = await api.get_port_wan_status()
+            _LOGGER.info("WAN port status: %s", json.dumps(port_wan, indent=2))
+
+            with open(output_dir / "port_wan_status.json", "w") as f:
+                json.dump(port_wan, f, indent=2)
+
+            test_results["port_wan_status"] = "PASSED"
+        except Exception as e:
+            _LOGGER.error("Error during port_wan_status test: %s", e)
+            test_results["port_wan_status"] = f"FAILED: {str(e)}"
+
         _LOGGER.info("All API tests completed")
         _LOGGER.info("Output files saved to %s", output_dir)
         

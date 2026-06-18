@@ -189,6 +189,8 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.api.get_watchdog_status(),
                 self.api.get_experimental_config(),
                 self.api.get_bluetooth_status(),
+                self.api.get_port_lan_status(),
+                self.api.get_port_wan_status(),
                 return_exceptions=True,
             )
 
@@ -247,6 +249,16 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if isinstance(bluetooth, Exception):
                 _LOGGER.debug("Bluetooth status unavailable: %s", bluetooth)
                 bluetooth = {}
+
+            port_lan = results[15]
+            if isinstance(port_lan, Exception):
+                _LOGGER.debug("LAN port status unavailable: %s", port_lan)
+                port_lan = {}
+
+            port_wan = results[16]
+            if isinstance(port_wan, Exception):
+                _LOGGER.debug("WAN port status unavailable: %s", port_wan)
+                port_wan = {}
 
             # Unpack results
             wan_status, clients, system_info, traffic_stats, location_info = results[:5]
@@ -327,6 +339,8 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "watchdog": watchdog,
                 "experimental": experimental,
                 "bluetooth": bluetooth,
+                "port_lan": port_lan,
+                "port_wan": port_wan,
             }
                 
         except Exception as e:
