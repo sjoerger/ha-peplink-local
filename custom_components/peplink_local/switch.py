@@ -270,21 +270,72 @@ class WanHCFailureSimSwitch(CoordinatorEntity, SwitchEntity):
         return attrs
 
 
-class WatchdogSwitch(CoordinatorEntity, SwitchEntity):
-    """Switch to enable/disable the router watchdog."""
+class _SupportSwitch(CoordinatorEntity, SwitchEntity):
+    """Base class for router support-feature switches.
+
+    Holds optimistic local state so the UI reflects the toggle immediately
+    without bouncing while the API propagates the change. A delayed refresh
+    syncs the real state once the API has settled.
+    """
 
     _attr_has_entity_name = True
-    _attr_name = "Watchdog"
     _attr_entity_category = EntityCategory.CONFIG
-    _attr_icon = "mdi:dog"
 
     def __init__(self, coordinator, device_info: DeviceInfo) -> None:
         super().__init__(coordinator)
-        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_watchdog"
         self._attr_device_info = device_info
+        self._is_on: bool | None = None
+
+    def _state_from_coordinator(self) -> bool | None:
+        """Return current state from coordinator data. Override in subclasses."""
+        raise NotImplementedError
+
+    def _handle_coordinator_update(self) -> None:
+        state = self._state_from_coordinator()
+        if state is not None:
+            self._is_on = state
+        super()._handle_coordinator_update()
 
     @property
     def is_on(self) -> bool | None:
+        return self._is_on
+
+    async def _set_enabled(self, enable: bool) -> bool:
+        """Call the API to change state. Override in subclasses."""
+        raise NotImplementedError
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        if await self._set_enabled(True):
+            self._is_on = True
+            self.async_write_ha_state()
+            self.hass.async_create_task(self._delayed_refresh())
+        else:
+            _LOGGER.error("Failed to enable %s", self._attr_name)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        if await self._set_enabled(False):
+            self._is_on = False
+            self.async_write_ha_state()
+            self.hass.async_create_task(self._delayed_refresh())
+        else:
+            _LOGGER.error("Failed to disable %s", self._attr_name)
+
+    async def _delayed_refresh(self) -> None:
+        await asyncio.sleep(3)
+        await self.coordinator.async_request_refresh()
+
+
+class WatchdogSwitch(_SupportSwitch):
+    """Switch to enable/disable the router watchdog."""
+
+    _attr_name = "Watchdog"
+    _attr_icon = "mdi:dog"
+
+    def __init__(self, coordinator, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator, device_info)
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_watchdog"
+
+    def _state_from_coordinator(self) -> bool | None:
         return self.coordinator.data.get("watchdog", {}).get("enable")
 
     @property
@@ -293,34 +344,21 @@ class WatchdogSwitch(CoordinatorEntity, SwitchEntity):
             self.coordinator.data.get("watchdog")
         )
 
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        if await self.coordinator.api.set_watchdog_enabled(True):
-            await self.coordinator.async_request_refresh()
-        else:
-            _LOGGER.error("Failed to enable watchdog")
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        if await self.coordinator.api.set_watchdog_enabled(False):
-            await self.coordinator.async_request_refresh()
-        else:
-            _LOGGER.error("Failed to disable watchdog")
+    async def _set_enabled(self, enable: bool) -> bool:
+        return await self.coordinator.api.set_watchdog_enabled(enable)
 
 
-class DpiSwitch(CoordinatorEntity, SwitchEntity):
+class DpiSwitch(_SupportSwitch):
     """Switch to enable/disable the DPI engine."""
 
-    _attr_has_entity_name = True
     _attr_name = "DPI Support"
-    _attr_entity_category = EntityCategory.CONFIG
     _attr_icon = "mdi:shield-search"
 
     def __init__(self, coordinator, device_info: DeviceInfo) -> None:
-        super().__init__(coordinator)
+        super().__init__(coordinator, device_info)
         self._attr_unique_id = f"{coordinator.config_entry.entry_id}_dpi"
-        self._attr_device_info = device_info
 
-    @property
-    def is_on(self) -> bool | None:
+    def _state_from_coordinator(self) -> bool | None:
         return self.coordinator.data.get("experimental", {}).get("dpi", {}).get("enable")
 
     @property
@@ -329,34 +367,21 @@ class DpiSwitch(CoordinatorEntity, SwitchEntity):
             self.coordinator.data.get("experimental", {}).get("dpi")
         )
 
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        if await self.coordinator.api.set_dpi_enabled(True):
-            await self.coordinator.async_request_refresh()
-        else:
-            _LOGGER.error("Failed to enable DPI support")
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        if await self.coordinator.api.set_dpi_enabled(False):
-            await self.coordinator.async_request_refresh()
-        else:
-            _LOGGER.error("Failed to disable DPI support")
+    async def _set_enabled(self, enable: bool) -> bool:
+        return await self.coordinator.api.set_dpi_enabled(enable)
 
 
-class BssidSteeringSwitch(CoordinatorEntity, SwitchEntity):
+class BssidSteeringSwitch(_SupportSwitch):
     """Switch to enable/disable Wi-Fi BSSID steering."""
 
-    _attr_has_entity_name = True
     _attr_name = "Wi-Fi BSSID Steering"
-    _attr_entity_category = EntityCategory.CONFIG
     _attr_icon = "mdi:wifi-arrow-left-right"
 
     def __init__(self, coordinator, device_info: DeviceInfo) -> None:
-        super().__init__(coordinator)
+        super().__init__(coordinator, device_info)
         self._attr_unique_id = f"{coordinator.config_entry.entry_id}_bssid_steering"
-        self._attr_device_info = device_info
 
-    @property
-    def is_on(self) -> bool | None:
+    def _state_from_coordinator(self) -> bool | None:
         return self.coordinator.data.get("experimental", {}).get("bssidSteering", {}).get("enable")
 
     @property
@@ -365,34 +390,21 @@ class BssidSteeringSwitch(CoordinatorEntity, SwitchEntity):
             "bssidSteering" in self.coordinator.data.get("experimental", {})
         )
 
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        if await self.coordinator.api.set_bssid_steering_enabled(True):
-            await self.coordinator.async_request_refresh()
-        else:
-            _LOGGER.error("Failed to enable BSSID steering")
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        if await self.coordinator.api.set_bssid_steering_enabled(False):
-            await self.coordinator.async_request_refresh()
-        else:
-            _LOGGER.error("Failed to disable BSSID steering")
+    async def _set_enabled(self, enable: bool) -> bool:
+        return await self.coordinator.api.set_bssid_steering_enabled(enable)
 
 
-class StarlinkProxySwitch(CoordinatorEntity, SwitchEntity):
+class StarlinkProxySwitch(_SupportSwitch):
     """Switch to enable/disable the Starlink gRPC API proxy."""
 
-    _attr_has_entity_name = True
     _attr_name = "Starlink gRPC Proxy"
-    _attr_entity_category = EntityCategory.CONFIG
     _attr_icon = "mdi:satellite-variant"
 
     def __init__(self, coordinator, device_info: DeviceInfo) -> None:
-        super().__init__(coordinator)
+        super().__init__(coordinator, device_info)
         self._attr_unique_id = f"{coordinator.config_entry.entry_id}_starlink_proxy"
-        self._attr_device_info = device_info
 
-    @property
-    def is_on(self) -> bool | None:
+    def _state_from_coordinator(self) -> bool | None:
         return self.coordinator.data.get("experimental", {}).get("starlinkApiProxy", {}).get("enable")
 
     @property
@@ -401,34 +413,21 @@ class StarlinkProxySwitch(CoordinatorEntity, SwitchEntity):
             "starlinkApiProxy" in self.coordinator.data.get("experimental", {})
         )
 
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        if await self.coordinator.api.set_starlink_proxy_enabled(True):
-            await self.coordinator.async_request_refresh()
-        else:
-            _LOGGER.error("Failed to enable Starlink gRPC proxy")
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        if await self.coordinator.api.set_starlink_proxy_enabled(False):
-            await self.coordinator.async_request_refresh()
-        else:
-            _LOGGER.error("Failed to disable Starlink gRPC proxy")
+    async def _set_enabled(self, enable: bool) -> bool:
+        return await self.coordinator.api.set_starlink_proxy_enabled(enable)
 
 
-class BluetoothSwitch(CoordinatorEntity, SwitchEntity):
+class BluetoothSwitch(_SupportSwitch):
     """Switch to enable/disable Bluetooth."""
 
-    _attr_has_entity_name = True
     _attr_name = "Bluetooth"
-    _attr_entity_category = EntityCategory.CONFIG
     _attr_icon = "mdi:bluetooth"
 
     def __init__(self, coordinator, device_info: DeviceInfo) -> None:
-        super().__init__(coordinator)
+        super().__init__(coordinator, device_info)
         self._attr_unique_id = f"{coordinator.config_entry.entry_id}_bluetooth"
-        self._attr_device_info = device_info
 
-    @property
-    def is_on(self) -> bool | None:
+    def _state_from_coordinator(self) -> bool | None:
         return self.coordinator.data.get("bluetooth", {}).get("enable")
 
     @property
@@ -437,14 +436,5 @@ class BluetoothSwitch(CoordinatorEntity, SwitchEntity):
             self.coordinator.data.get("bluetooth")
         )
 
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        if await self.coordinator.api.set_bluetooth_enabled(True):
-            await self.coordinator.async_request_refresh()
-        else:
-            _LOGGER.error("Failed to enable Bluetooth")
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        if await self.coordinator.api.set_bluetooth_enabled(False):
-            await self.coordinator.async_request_refresh()
-        else:
-            _LOGGER.error("Failed to disable Bluetooth")
+    async def _set_enabled(self, enable: bool) -> bool:
+        return await self.coordinator.api.set_bluetooth_enabled(enable)
