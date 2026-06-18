@@ -600,8 +600,8 @@ Example response:
         "client_name": "Aura",
         "ip_addr": "10.0.6.42",
         "rssi": -35,
-        "freq": 5180,
-        "mode": "11ax",
+        "freq": "5GHz",
+        "mode": "802.11ax (5GHz)",
         "wifigen": 6,
         "is_assoc": true,
         "vap_id": 1,
@@ -617,6 +617,54 @@ Notes:
 - `is_assoc: false` means the AP remembers the client but it is not currently connected
 - `vap_id` links back to the `vap_info` key in `status.extap.vap.summary`
 - `ip_addr` may be `"0.0.0.0"` when not yet assigned
+- `freq` is a string label (`"2.4GHz"`, `"5GHz"`, `"6GHz"`), not a numeric MHz value
+
+#### Reading AP radio / band status
+
+This endpoint uses `data.cgi` rather than `api.cgi` and returns JSON directly (no `stat`/`response` wrapper).
+
+URL: `https://<router>/cgi-bin/MANGA/data.cgi?option=extap_ap_status&_=<timestamp>`
+
+Example response:
+```json
+{
+  "group_info": {
+    "1": {
+      "group_name": "Default Group",
+      "ap_info": {
+        "1": {
+          "is_local_ap": true,
+          "channel_info": {
+            "2.4 GHz": {
+              "ch_util": 42,
+              "channel": 6,
+              "clients": 8,
+              "nearby_ap": 12,
+              "nearby_device": 34,
+              "power": 20
+            },
+            "5 GHz": {
+              "ch_util": 18,
+              "channel": 36,
+              "clients": 10,
+              "nearby_ap": 5,
+              "nearby_device": 11,
+              "power": 23
+            }
+          },
+          "is_online": true
+        }
+      }
+    }
+  }
+}
+```
+
+Notes:
+- `is_local_ap: true` identifies the router's own built-in AP (vs. remote managed APs)
+- `ch_util` is channel utilization percentage (0–100)
+- `power` is transmit power in dBm
+- `nearby_ap` counts competing APs; `nearby_device` counts all Wi-Fi devices visible on the band
 
 #### Reading SpeedFusion Connect / PepVPN status
 

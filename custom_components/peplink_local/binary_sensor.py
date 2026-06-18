@@ -12,7 +12,7 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -166,6 +166,12 @@ async def async_setup_entry(
             via_device=(DOMAIN, coordinator.config_entry.entry_id),
         )
         entities.append(VapActiveBinarySensor(coordinator, vap_id, vap_device))
+
+    # Add online binary sensor for local AP radio(s)
+    ap_radio = coordinator.data.get("ap_radio", {})
+    for ap_id, ap_data in ap_radio.items():
+        if ap_data.get("is_local_ap"):
+            entities.append(ApRadioOnlineBinarySensor(coordinator, ap_id))
 
     async_add_entities(entities)
 
@@ -361,3 +367,35 @@ class VapActiveBinarySensor(CoordinatorEntity, BinarySensorEntity):
     @property
     def available(self) -> bool:
         return self.coordinator.last_update_success and bool(self._vap_data())
+
+
+class ApRadioOnlineBinarySensor(CoordinatorEntity, BinarySensorEntity):
+    """Binary sensor showing whether the router's built-in AP radio is online."""
+
+    _attr_has_entity_name = True
+    _attr_name = "AP Radio Online"
+    _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:access-point"
+
+    def __init__(self, coordinator, ap_id: str) -> None:
+        super().__init__(coordinator)
+        self._ap_id = ap_id
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_ap{ap_id}_online"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, coordinator.config_entry.entry_id)},
+        )
+
+    def _ap_data(self) -> dict:
+        return self.coordinator.data.get("ap_radio", {}).get(self._ap_id, {})
+
+    @property
+    def is_on(self) -> bool | None:
+        data = self._ap_data()
+        if not data:
+            return None
+        return data.get("is_online", False)
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.last_update_success and bool(self._ap_data())

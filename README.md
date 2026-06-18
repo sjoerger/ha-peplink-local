@@ -36,6 +36,15 @@ This custom integration allows you to monitor and track your Peplink router from
   - Heading Sensor (degrees)
 - **Wi-Fi AP** (for routers with a built-in AP):
   - AP Enabled binary sensor on the main router device
+  - Per-band sensors on the main router device (one set per band: 2.4 GHz / 5 GHz / 6 GHz):
+    - Channel Utilization (%)
+    - Channel number (diagnostic)
+    - Client count across all SSIDs
+    - Nearby APs visible on the band (diagnostic)
+    - Nearby Devices visible on the band (diagnostic)
+    - Transmit Power in dBm (diagnostic)
+    - Average Client RSSI in dBm
+    - AP Radio Online binary sensor (diagnostic)
   - Per-SSID virtual devices, each with:
     - Active binary sensor (is the SSID broadcasting?)
     - Client Count sensor
