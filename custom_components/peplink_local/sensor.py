@@ -368,146 +368,127 @@ async def async_setup_entry(
                 )
             )
 
-    # Add WAN traffic sensors
-    if coordinator.data.get("traffic_stats", {}).get("stats"):
-        wan_stats = coordinator.data["traffic_stats"]["stats"]
-        
-        # Get the WAN status data - Fix key mismatch here
-        wan_status = coordinator.data.get("wan_status", {})
-        wan_connections = wan_status.get("connection", [])
-        
-        for wan in wan_stats:
-            wan_id = wan['wan_id']
-            wan_name = wan['name']
-            
-            # Create device info for this WAN
-            device_info = DeviceInfo(
-                identifiers={(DOMAIN, f"{coordinator.config_entry.entry_id}_wan{wan_id}")},
-                manufacturer="Peplink",
-                model="WAN Connection",
-                name=f"{coordinator.device_name or 'Peplink'} WAN{wan_id}",
-                via_device=(DOMAIN, coordinator.config_entry.entry_id),
-            )
-            
-            # Find matching WAN connection data
-            wan_connection = None
-            for connection in wan_connections:
-                if str(connection.get("id", "")) == str(wan_id):
-                    wan_connection = connection
-                    break
-            
-            # Create traffic rate sensors
-            for description in SENSOR_TYPES:
-                if description.key in ["wan_download_rate", "wan_upload_rate"]:
-                    # Create a copy of the description for this specific WAN
-                    sensor_description = PeplinkSensorEntityDescription(
-                        key=f"{description.key.replace('wan_', '')}",
-                        translation_key=description.translation_key,
-                        name=description.name,
-                        native_unit_of_measurement=description.native_unit_of_measurement,
-                        device_class=description.device_class,
-                        state_class=description.state_class,
-                        icon=description.icon,  # Use the icon from the original description
-                        value_fn=description.value_fn,
-                    )
-                    entities.append(
-                        PeplinkWANSensor(
-                            coordinator=coordinator,
-                            description=sensor_description,
-                            sensor_data=wan,
-                            device_info=device_info,
-                            wan_id=wan_id,
-                        )
-                    )
-            
-            # Add all relevant sensors if WAN connection data is available
-            if wan_connection:
-                # Add a connection status sensor
-                message_description = PeplinkSensorEntityDescription(
-                    key="message",
-                    translation_key=None,
-                    name="Message",
-                    native_unit_of_measurement=None,
-                    device_class=None,
-                    state_class=None,
-                    value_fn=lambda x: x.get("message"),
-                    icon="mdi:network",
+    # Add WAN sensors — drive off wan_status.connection so entities exist for all
+    # known WANs at setup time, not just those currently active in traffic stats.
+    # This ensures sensors appear immediately when a WAN interface comes online
+    # without requiring an integration reload.
+    wan_connections = coordinator.data.get("wan_status", {}).get("connection", [])
+
+    # Build a lookup of current traffic stats keyed by wan_id
+    traffic_by_id: dict[str, dict] = {
+        str(s["wan_id"]): s
+        for s in coordinator.data.get("traffic_stats", {}).get("stats", [])
+    }
+
+    for wan_connection in wan_connections:
+        wan_id = str(wan_connection.get("id", ""))
+        if not wan_id:
+            continue
+
+        device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"{coordinator.config_entry.entry_id}_wan{wan_id}")},
+            manufacturer="Peplink",
+            model="WAN Connection",
+            name=f"{coordinator.device_name or 'Peplink'} WAN{wan_id}",
+            via_device=(DOMAIN, coordinator.config_entry.entry_id),
+        )
+
+        # Traffic rate sensors — initial_data is empty when WAN is not yet active;
+        # native_value looks up live data from traffic_stats on each poll.
+        wan_traffic = traffic_by_id.get(wan_id, {})
+        for description in SENSOR_TYPES:
+            if description.key in ["wan_download_rate", "wan_upload_rate"]:
+                sensor_description = PeplinkSensorEntityDescription(
+                    key=description.key.replace("wan_", ""),
+                    translation_key=description.translation_key,
+                    name=description.name,
+                    native_unit_of_measurement=description.native_unit_of_measurement,
+                    device_class=description.device_class,
+                    state_class=description.state_class,
+                    icon=description.icon,
+                    value_fn=description.value_fn,
                 )
                 entities.append(
                     PeplinkWANSensor(
                         coordinator=coordinator,
-                        description=message_description,
+                        description=sensor_description,
+                        sensor_data=wan_traffic,
+                        device_info=device_info,
+                        wan_id=wan_id,
+                    )
+                )
+
+        # Connection message sensor
+        message_description = PeplinkSensorEntityDescription(
+            key="message",
+            translation_key=None,
+            name="Message",
+            native_unit_of_measurement=None,
+            device_class=None,
+            state_class=None,
+            value_fn=lambda x: x.get("message"),
+            icon="mdi:network",
+        )
+        entities.append(
+            PeplinkWANSensor(
+                coordinator=coordinator,
+                description=message_description,
+                sensor_data=wan_connection,
+                device_info=device_info,
+                wan_id=wan_id,
+            )
+        )
+
+        # All other wan_* sensors (type, name, ip, etc.)
+        for description in SENSOR_TYPES:
+            if description.key.startswith("wan_") and description.key not in [
+                "wan_download_rate", "wan_upload_rate", "wan_message", "wan_uptime", "wan_up_since"
+            ]:
+                sensor_description = PeplinkSensorEntityDescription(
+                    key=description.key.replace("wan_", ""),
+                    translation_key=description.translation_key,
+                    name=description.name,
+                    native_unit_of_measurement=description.native_unit_of_measurement,
+                    device_class=description.device_class,
+                    state_class=description.state_class,
+                    icon=description.icon,
+                    value_fn=description.value_fn,
+                )
+                entities.append(
+                    PeplinkWANSensor(
+                        coordinator=coordinator,
+                        description=sensor_description,
                         sensor_data=wan_connection,
                         device_info=device_info,
                         wan_id=wan_id,
                     )
                 )
-                
-                # Add all relevant sensors
-                for description in SENSOR_TYPES:
-                    if description.key.startswith("wan_") and description.key not in ["wan_download_rate", "wan_upload_rate", "wan_message", "wan_uptime", "wan_up_since"]:
-                        # Create a copy of the description for this specific WAN
-                        sensor_description = PeplinkSensorEntityDescription(
-                            key=description.key.replace("wan_", ""),
-                            translation_key=description.translation_key,
-                            name=description.name,
-                            native_unit_of_measurement=description.native_unit_of_measurement,
-                            device_class=description.device_class,
-                            state_class=description.state_class,
-                            icon=description.icon,  # Use the icon from the original description
-                            value_fn=description.value_fn,
-                        )
-                        entities.append(
-                            PeplinkWANSensor(
-                                coordinator=coordinator,
-                                description=sensor_description,
-                                sensor_data=wan_connection,
-                                device_info=device_info,
-                                wan_id=wan_id,
-                            )
-                        )
-                        
-                # Handle uptime - if available in data
-                if "uptime" in wan_connection:
-                    _LOGGER.debug(
-                        "Creating up_since sensor for WAN %s (uptime=%s)",
-                        wan_id,
-                        wan_connection.get("uptime")
+
+        # Up Since sensor — uptime field is present for all WANs (0 when offline)
+        if "uptime" in wan_connection:
+            uptime_description = next(
+                (d for d in SENSOR_TYPES if d.key == "wan_up_since"), None
+            )
+            if uptime_description:
+                sensor_description = PeplinkSensorEntityDescription(
+                    key=uptime_description.key.replace("wan_", ""),
+                    translation_key=uptime_description.translation_key,
+                    name=uptime_description.name,
+                    native_unit_of_measurement=uptime_description.native_unit_of_measurement,
+                    device_class=uptime_description.device_class,
+                    state_class=uptime_description.state_class,
+                    icon=uptime_description.icon,
+                    value_fn=uptime_description.value_fn,
+                )
+                entities.append(
+                    PeplinkWANSensor(
+                        coordinator=coordinator,
+                        description=sensor_description,
+                        sensor_data=wan_connection,
+                        device_info=device_info,
+                        wan_id=wan_id,
                     )
-                    uptime_description = next(
-                        (d for d in SENSOR_TYPES if d.key == "wan_up_since"), None
-                    )
-                    if uptime_description:
-                        _LOGGER.debug("Found wan_up_since description in SENSOR_TYPES")
-                        sensor_description = PeplinkSensorEntityDescription(
-                            key=uptime_description.key.replace("wan_", ""),
-                            translation_key=uptime_description.translation_key,
-                            name=uptime_description.name,
-                            native_unit_of_measurement=uptime_description.native_unit_of_measurement,
-                            device_class=uptime_description.device_class,
-                            state_class=uptime_description.state_class,
-                            icon=uptime_description.icon,
-                            value_fn=uptime_description.value_fn,
-                        )
-                        _LOGGER.debug(
-                            "Creating PeplinkWANSensor with key=%s for WAN %s",
-                            sensor_description.key,
-                            wan_id
-                        )
-                        entities.append(
-                            PeplinkWANSensor(
-                                coordinator=coordinator,
-                                description=sensor_description,
-                                sensor_data=wan_connection,
-                                device_info=device_info,
-                                wan_id=wan_id,
-                            )
-                        )
-                        _LOGGER.debug("Successfully created up_since sensor for WAN %s", wan_id)
-                    else:
-                        _LOGGER.warning("Could not find wan_up_since in SENSOR_TYPES!")
-                else:
-                    _LOGGER.debug("No uptime in wan_connection for WAN %s", wan_id)
+                )
 
     # Add SpeedFusion Connect / PepVPN peer sensors
     pepvpn_status = coordinator.data.get("pepvpn_status", {})
