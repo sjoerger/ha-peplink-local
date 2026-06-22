@@ -1238,14 +1238,37 @@ class PeplinkAPI:
         }
 
     async def set_sfc_profile_enable(self, profile_id: int, enable: bool) -> bool:
-        """Enable or disable an SFC profile by ID."""
+        """Enable or disable an SFC profile by ID.
+
+        Two-step: write the staged config, then apply it via admin.cgi so the
+        change takes effect on the running tunnel without requiring a manual
+        'Apply Changes' click in the web UI.
+        """
         response = await self._make_api_request(
             "config.speedfusionConnectProtect.profile",
             method="POST",
             public_api=False,
             data={"action": "replace", "list": [{"id": profile_id, "enable": enable}]},
         )
-        return response.get("stat") == "ok"
+        if response.get("stat") != "ok":
+            return False
+        # Apply the staged config to the running system.
+        session = await self._get_session()
+        headers = {}
+        if self._auth_cookie:
+            headers["Cookie"] = f"bauth={self._auth_cookie}"
+        url = f"{self.base_url}/cgi-bin/MANGA/admin.cgi"
+        try:
+            async with session.post(
+                url,
+                data={"section": "MVPN_site", "site_id": profile_id},
+                headers=headers,
+            ) as resp:
+                text = await resp.text()
+                return "<status>1</status>" in text
+        except Exception as err:
+            _LOGGER.debug("SFC profile apply failed: %s", err)
+            return False
 
     async def close(self) -> None:
         """Close the session if we created it."""

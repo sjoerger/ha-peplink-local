@@ -342,6 +342,29 @@ async def test_api(router_ip, username, password, verify_ssl=False):
             _LOGGER.error("Error during sfc_profile test: %s", e)
             test_results["sfc_profile"] = f"FAILED: {str(e)}"
 
+        # 16. SFC profile enable/disable toggle (config write + MVPN_site apply)
+        _LOGGER.info("Testing SFC profile enable toggle...")
+        try:
+            sfc_profile = await api.get_sfc_profile()
+            profile_ids = list(sfc_profile.keys())
+            if not profile_ids:
+                test_results["sfc_profile_toggle"] = "SKIPPED: no SFC profiles found"
+            else:
+                pid = profile_ids[0]
+                original_enable = sfc_profile[pid].get("enable", False)
+                # Toggle off and back
+                ok_off = await api.set_sfc_profile_enable(pid, not original_enable)
+                await asyncio.sleep(1)
+                ok_on = await api.set_sfc_profile_enable(pid, original_enable)
+                if ok_off and ok_on:
+                    test_results["sfc_profile_toggle"] = "PASSED"
+                    _LOGGER.info("SFC profile toggle: off=%s on=%s", ok_off, ok_on)
+                else:
+                    test_results["sfc_profile_toggle"] = f"FAILED: off={ok_off} on={ok_on}"
+        except Exception as e:
+            _LOGGER.error("Error during sfc_profile_toggle test: %s", e)
+            test_results["sfc_profile_toggle"] = f"FAILED: {str(e)}"
+
         _LOGGER.info("All API tests completed")
         _LOGGER.info("Output files saved to %s", output_dir)
         
