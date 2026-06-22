@@ -81,6 +81,19 @@ async def async_setup_entry(
     if coordinator.data.get("bluetooth"):
         entities.append(BluetoothSwitch(coordinator, router_device))
 
+    # Add SFC profile enable/disable switch(es)
+    sfc_profile = coordinator.data.get("sfc_profile", {})
+    device_name_prefix = coordinator.device_name or "Peplink"
+    for profile_id, profile_data in sfc_profile.items():
+        sfc_device = DeviceInfo(
+            identifiers={(DOMAIN, f"{coordinator.config_entry.entry_id}_sfc")},
+            manufacturer="Peplink",
+            model="SpeedFusion Connect",
+            name=f"{device_name_prefix} SpeedFusion Connect",
+            via_device=(DOMAIN, coordinator.config_entry.entry_id),
+        )
+        entities.append(SfcProfileSwitch(coordinator, profile_id, sfc_device))
+
     # Add health check failure simulation switches for WANs with active health checks
     for wan_id, hc_data in coordinator.data.get("wan_health_check", {}).items():
         wan_name = hc_data.get("name", f"WAN {wan_id}")
@@ -438,3 +451,29 @@ class BluetoothSwitch(_SupportSwitch):
 
     async def _set_enabled(self, enable: bool) -> bool:
         return await self.coordinator.api.set_bluetooth_enabled(enable)
+
+
+class SfcProfileSwitch(_SupportSwitch):
+    """Switch to enable/disable a SpeedFusion Connect profile."""
+
+    _attr_name = "Enabled"
+    _attr_icon = "mdi:shield-check"
+    _attr_entity_category = None
+
+    def __init__(self, coordinator, profile_id: int, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator, device_info)
+        self._profile_id = profile_id
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_sfc_profile_{profile_id}"
+
+    def _state_from_coordinator(self) -> bool | None:
+        p = self.coordinator.data.get("sfc_profile", {}).get(self._profile_id)
+        return p.get("enable") if p else None
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.last_update_success and (
+            self._profile_id in self.coordinator.data.get("sfc_profile", {})
+        )
+
+    async def _set_enabled(self, enable: bool) -> bool:
+        return await self.coordinator.api.set_sfc_profile_enable(self._profile_id, enable)

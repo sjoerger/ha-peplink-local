@@ -328,6 +328,20 @@ async def test_api(router_ip, username, password, verify_ssl=False):
             _LOGGER.error("Error during sfc_quota test: %s", e)
             test_results["sfc_quota"] = f"FAILED: {str(e)}"
 
+        # 15. SFC profile config (enable state via config.speedfusionConnectProtect.profile)
+        _LOGGER.info("Fetching SFC profile config...")
+        try:
+            sfc_profile = await api.get_sfc_profile()
+
+            with open(output_dir / "sfc_profile.json", "w") as f:
+                json.dump(sfc_profile, f, indent=2, default=str)
+
+            _LOGGER.info("SFC profile: %s", json.dumps(sfc_profile, indent=2, default=str))
+            test_results["sfc_profile"] = "PASSED"
+        except Exception as e:
+            _LOGGER.error("Error during sfc_profile test: %s", e)
+            test_results["sfc_profile"] = f"FAILED: {str(e)}"
+
         _LOGGER.info("All API tests completed")
         _LOGGER.info("Output files saved to %s", output_dir)
         

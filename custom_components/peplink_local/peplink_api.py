@@ -1219,6 +1219,34 @@ class PeplinkAPI:
             "has_profile": data.get("has_sfc_profile", False),
         }
 
+    async def get_sfc_profile(self) -> dict[str, Any]:
+        """Fetch SFC profile configuration (enable state, city code, etc.).
+
+        Returns a dict of profile_id (int) -> profile_data, or {} on failure.
+        Only available when sfwan_local_configuration is supported.
+        """
+        response = await self._make_api_request(
+            "config.speedfusionConnectProtect.profile",
+            public_api=False,
+        )
+        if response.get("stat") != "ok":
+            return {}
+        resp = response.get("response", {})
+        return {
+            int(k): v for k, v in resp.items()
+            if k not in ("order", "reference")
+        }
+
+    async def set_sfc_profile_enable(self, profile_id: int, enable: bool) -> bool:
+        """Enable or disable an SFC profile by ID."""
+        response = await self._make_api_request(
+            "config.speedfusionConnectProtect.profile",
+            method="POST",
+            public_api=False,
+            data={"action": "replace", "list": [{"id": profile_id, "enable": enable}]},
+        )
+        return response.get("stat") == "ok"
+
     async def close(self) -> None:
         """Close the session if we created it."""
         if self._own_session and self._session is not None:
