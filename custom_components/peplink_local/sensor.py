@@ -499,7 +499,10 @@ async def async_setup_entry(
 
     # Build parent device per unique profile_id.
     # profileId >= 60000 is a virtual SFC profile; lower IDs are real PepVPN profiles.
+    # SFC profiles use a stable "_sfc" identifier so the device persists even when no
+    # tunnels are active and the quota sensors always have a home.
     _pepvpn_parent_devices: dict[str, DeviceInfo] = {}
+    _pepvpn_parent_device_ids: dict[str, str] = {}
     for peer in pepvpn_peers:
         pid = peer.get("profile_id", "")
         if pid and pid not in _pepvpn_parent_devices:
@@ -507,8 +510,14 @@ async def async_setup_entry(
                 is_sfc = int(pid) >= 60000
             except ValueError:
                 is_sfc = False
+            parent_id = (
+                f"{coordinator.config_entry.entry_id}_sfc"
+                if is_sfc
+                else f"{coordinator.config_entry.entry_id}_pepvpn_profile_{pid}"
+            )
+            _pepvpn_parent_device_ids[pid] = parent_id
             _pepvpn_parent_devices[pid] = DeviceInfo(
-                identifiers={(DOMAIN, f"{coordinator.config_entry.entry_id}_pepvpn_profile_{pid}")},
+                identifiers={(DOMAIN, parent_id)},
                 manufacturer="Peplink",
                 model="SpeedFusion Connect" if is_sfc else "SpeedFusion VPN Profile",
                 name=f"{device_name_prefix} SpeedFusion Connect" if is_sfc else f"{device_name_prefix} VPN Profile {pid}",
@@ -526,7 +535,7 @@ async def async_setup_entry(
             manufacturer="Peplink",
             model="SpeedFusion Connect Peer",
             name=f"{device_name_prefix} {peer_name}",
-            via_device=(DOMAIN, f"{coordinator.config_entry.entry_id}_pepvpn_profile_{profile_id}") if parent_device else (DOMAIN, coordinator.config_entry.entry_id),
+            via_device=(DOMAIN, _pepvpn_parent_device_ids[profile_id]) if parent_device else (DOMAIN, coordinator.config_entry.entry_id),
         )
 
         for key, name, icon in [
@@ -681,13 +690,20 @@ async def async_setup_entry(
     for band in present_bands:
         entities.append(BandAvgRssiSensor(coordinator, band, router_device))
 
-    # Add SFC data allowance sensors (only when device has an active SFC profile)
+    # Add SFC data allowance sensors (only when device has an active SFC profile).
+    # Always use the stable _sfc sub-device so the sensors persist when no tunnels are active.
     sfc_quota = coordinator.data.get("sfc_quota", {})
     if sfc_quota.get("has_profile") and sfc_quota.get("quota_mb") is not None:
-        sfc_router_device = DeviceInfo(identifiers={(DOMAIN, coordinator.config_entry.entry_id)})
+        sfc_device = DeviceInfo(
+            identifiers={(DOMAIN, f"{coordinator.config_entry.entry_id}_sfc")},
+            manufacturer="Peplink",
+            model="SpeedFusion Connect",
+            name=f"{device_name_prefix} SpeedFusion Connect",
+            via_device=(DOMAIN, coordinator.config_entry.entry_id),
+        )
         entities.extend([
-            SfcDataAllowanceSensor(coordinator, sfc_router_device),
-            SfcExpiryDateSensor(coordinator, sfc_router_device),
+            SfcDataAllowanceSensor(coordinator, sfc_device),
+            SfcExpiryDateSensor(coordinator, sfc_device),
         ])
 
     # Add all entities
