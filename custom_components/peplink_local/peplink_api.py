@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import json
+import re
 import ssl
 import asyncio
 from typing import Any, Dict, List, Optional
@@ -1182,6 +1183,41 @@ class PeplinkAPI:
         if response.get("stat") != "ok":
             return {}
         return response.get("response", {})
+
+    async def get_sfc_quota(self) -> dict[str, Any]:
+        """Fetch SFC data allowance from the window-vars JS endpoint.
+
+        Returns a dict with quota_mb, expiry (unix timestamp), expiry_date (string),
+        limit (max SFC connections), license_valid, and has_profile.
+        Returns {} if the endpoint is unavailable or the device has no SFC profile.
+        """
+        if not await self.ensure_connected():
+            raise Exception("Not connected to Peplink router")
+
+        session = await self._get_session()
+        url = urljoin(self.base_url, "/cgi-bin/MANGA/index.cgi")
+        headers = {}
+        if self._auth_cookie:
+            headers["Cookie"] = f"bauth={self._auth_cookie}"
+        params = {"mode": "js", "_": str(int(time.time() * 1000))}
+
+        async with session.get(url, params=params, headers=headers) as resp:
+            resp.raise_for_status()
+            text = await resp.text()
+
+        m = re.search(r"\$\.extend\(window,\s*(\{.*?\})\);", text, re.DOTALL)
+        if not m:
+            return {}
+
+        data = json.loads(m.group(1))
+        return {
+            "quota_mb": data.get("support_sfwan_quota_mb"),
+            "expiry": data.get("support_sfwan_expiry"),
+            "expiry_date": data.get("support_sfwan_expiry_date"),
+            "limit": data.get("support_sfwan_limit"),
+            "license_valid": data.get("support_sfwan_license_valid", False),
+            "has_profile": data.get("has_sfc_profile", False),
+        }
 
     async def close(self) -> None:
         """Close the session if we created it."""

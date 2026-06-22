@@ -300,6 +300,34 @@ async def test_api(router_ip, username, password, verify_ssl=False):
             _LOGGER.error("Error during port_wan_status_lite_no test: %s", e)
             test_results["port_wan_status_lite_no"] = f"FAILED: {str(e)}"
 
+        # 13. Subscription info (SFC / FusionSIM data usage allowance)
+        _LOGGER.info("Fetching subscription info...")
+        try:
+            raw = await api._make_api_request("status.system.info", public_api=False, infoType="subscription")
+            _LOGGER.info("Subscription info (raw): %s", json.dumps(raw, indent=2))
+
+            with open(output_dir / "subscription_info.json", "w") as f:
+                json.dump(raw, f, indent=2)
+
+            test_results["subscription_info"] = "PASSED"
+        except Exception as e:
+            _LOGGER.error("Error during subscription_info test: %s", e)
+            test_results["subscription_info"] = f"FAILED: {str(e)}"
+
+        # 14. SFC quota (support_sfwan_quota_mb etc. from index.cgi?mode=js)
+        _LOGGER.info("Fetching SFC quota...")
+        try:
+            sfc_quota = await api.get_sfc_quota()
+
+            with open(output_dir / "sfc_quota.json", "w") as f:
+                json.dump(sfc_quota, f, indent=2)
+
+            _LOGGER.info("SFC quota: %s", json.dumps(sfc_quota, indent=2))
+            test_results["sfc_quota"] = "PASSED"
+        except Exception as e:
+            _LOGGER.error("Error during sfc_quota test: %s", e)
+            test_results["sfc_quota"] = f"FAILED: {str(e)}"
+
         _LOGGER.info("All API tests completed")
         _LOGGER.info("Output files saved to %s", output_dir)
         

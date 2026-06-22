@@ -23,6 +23,7 @@ from homeassistant.const import (
     REVOLUTIONS_PER_MINUTE,
     UnitOfTemperature,
     UnitOfDataRate,
+    UnitOfInformation,
     UnitOfTime,
     UnitOfLength,
     UnitOfSpeed,
@@ -679,6 +680,15 @@ async def async_setup_entry(
             present_bands.add(band)
     for band in present_bands:
         entities.append(BandAvgRssiSensor(coordinator, band, router_device))
+
+    # Add SFC data allowance sensors (only when device has an active SFC profile)
+    sfc_quota = coordinator.data.get("sfc_quota", {})
+    if sfc_quota.get("has_profile") and sfc_quota.get("quota_mb") is not None:
+        sfc_router_device = DeviceInfo(identifiers={(DOMAIN, coordinator.config_entry.entry_id)})
+        entities.extend([
+            SfcDataAllowanceSensor(coordinator, sfc_router_device),
+            SfcExpiryDateSensor(coordinator, sfc_router_device),
+        ])
 
     # Add all entities
     async_add_entities(entities)
@@ -1431,3 +1441,62 @@ class BandAvgRssiSensor(CoordinatorEntity, SensorEntity):
     @property
     def available(self) -> bool:
         return self.coordinator.last_update_success
+
+
+class SfcDataAllowanceSensor(CoordinatorEntity, SensorEntity):
+    """Remaining SpeedFusion Connect data allowance in GB."""
+
+    _attr_has_entity_name = True
+    _attr_name = "SFC Data Allowance"
+    _attr_native_unit_of_measurement = UnitOfInformation.GIGABYTES
+    _attr_device_class = SensorDeviceClass.DATA_SIZE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:cloud-upload"
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, coordinator, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_sfc_data_allowance"
+        self._attr_device_info = device_info
+
+    def _sfc(self) -> dict:
+        return self.coordinator.data.get("sfc_quota", {})
+
+    @property
+    def native_value(self) -> float | None:
+        mb = self._sfc().get("quota_mb")
+        if mb is None:
+            return None
+        return round(mb / 1024, 2)
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.last_update_success and self._sfc().get("quota_mb") is not None
+
+
+class SfcExpiryDateSensor(CoordinatorEntity, SensorEntity):
+    """SpeedFusion Connect subscription expiry date."""
+
+    _attr_has_entity_name = True
+    _attr_name = "SFC Expiry Date"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_icon = "mdi:calendar-clock"
+
+    def __init__(self, coordinator, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_sfc_expiry_date"
+        self._attr_device_info = device_info
+
+    def _sfc(self) -> dict:
+        return self.coordinator.data.get("sfc_quota", {})
+
+    @property
+    def native_value(self) -> datetime.datetime | None:
+        expiry = self._sfc().get("expiry")
+        if expiry is None:
+            return None
+        return datetime.datetime.fromtimestamp(expiry, tz=datetime.timezone.utc)
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.last_update_success and self._sfc().get("expiry") is not None

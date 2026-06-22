@@ -191,6 +191,7 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.api.get_bluetooth_status(),
                 self.api.get_port_lan_status(),
                 self.api.get_port_wan_status(),
+                self.api.get_sfc_quota(),
                 return_exceptions=True,
             )
 
@@ -259,6 +260,11 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if isinstance(port_wan, Exception):
                 _LOGGER.debug("WAN port status unavailable: %s", port_wan)
                 port_wan = {}
+
+            sfc_quota = results[17]
+            if isinstance(sfc_quota, Exception):
+                _LOGGER.debug("SFC quota unavailable: %s", sfc_quota)
+                sfc_quota = {}
 
             # Unpack results
             wan_status, clients, system_info, traffic_stats, location_info = results[:5]
@@ -341,6 +347,7 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "bluetooth": bluetooth,
                 "port_lan": port_lan,
                 "port_wan": port_wan,
+                "sfc_quota": sfc_quota,
             }
                 
         except Exception as e:
