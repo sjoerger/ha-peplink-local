@@ -557,9 +557,9 @@ async def async_setup_entry(
                 )
             )
 
-        for field, name, unit, icon, state_cls in [
-            ("bandwidth_limit_upload", "Bandwidth Limit Upload", "kbps", "mdi:upload", SensorStateClass.MEASUREMENT),
-            ("bandwidth_limit_download", "Bandwidth Limit Download", "kbps", "mdi:download", SensorStateClass.MEASUREMENT),
+        for field, name, icon in [
+            ("bandwidth_limit_upload", "Bandwidth Limit Upload", "mdi:upload"),
+            ("bandwidth_limit_download", "Bandwidth Limit Download", "mdi:download"),
         ]:
             entities.append(
                 PeplinkPepVPNPeerSensor(
@@ -567,8 +567,9 @@ async def async_setup_entry(
                     description=PeplinkSensorEntityDescription(
                         key=f"pepvpn_peer_{peer_id}_{field}",
                         name=name,
-                        native_unit_of_measurement=unit,
-                        state_class=state_cls,
+                        native_unit_of_measurement=UnitOfDataRate.KILOBITS_PER_SECOND,
+                        device_class=SensorDeviceClass.DATA_RATE,
+                        state_class=SensorStateClass.MEASUREMENT,
                         icon=icon,
                         value_fn=lambda p, f=field: p.get(f),
                     ),
@@ -1217,6 +1218,7 @@ class VapDownloadRateSensor(_VapSensorBase):
 
     _attr_name = "Download Rate"
     _attr_icon = "mdi:download"
+    _attr_device_class = SensorDeviceClass.DATA_RATE
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfDataRate.KILOBITS_PER_SECOND
 
@@ -1237,6 +1239,7 @@ class VapUploadRateSensor(_VapSensorBase):
 
     _attr_name = "Upload Rate"
     _attr_icon = "mdi:upload"
+    _attr_device_class = SensorDeviceClass.DATA_RATE
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfDataRate.KILOBITS_PER_SECOND
 
