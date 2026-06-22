@@ -106,6 +106,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             sw_version=coordinator.firmware,
         )
 
+        # Remove stale SFC profile devices created before the _sfc identifier was introduced.
+        # SFC pepvpn profiles (id >= 60000) previously used _pepvpn_profile_{id}; they now
+        # use the stable _sfc identifier. HA won't let users delete config-entry-owned devices
+        # manually, so we clean them up here.
+        sfc_prefix = f"{entry.entry_id}_pepvpn_profile_"
+        for device in dr.async_entries_for_config_entry(device_registry, entry.entry_id):
+            for domain, identifier in device.identifiers:
+                if domain == DOMAIN and identifier.startswith(sfc_prefix):
+                    try:
+                        if int(identifier[len(sfc_prefix):]) >= 60000:
+                            device_registry.async_remove_device(device.id)
+                    except ValueError:
+                        pass
+
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
         return True
@@ -191,6 +205,7 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.api.get_bluetooth_status(),
                 self.api.get_port_lan_status(),
                 self.api.get_port_wan_status(),
+                self.api.get_sfc_quota(),
                 return_exceptions=True,
             )
 
@@ -259,6 +274,11 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if isinstance(port_wan, Exception):
                 _LOGGER.debug("WAN port status unavailable: %s", port_wan)
                 port_wan = {}
+
+            sfc_quota = results[17]
+            if isinstance(sfc_quota, Exception):
+                _LOGGER.debug("SFC quota unavailable: %s", sfc_quota)
+                sfc_quota = {}
 
             # Unpack results
             wan_status, clients, system_info, traffic_stats, location_info = results[:5]
@@ -341,6 +361,7 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "bluetooth": bluetooth,
                 "port_lan": port_lan,
                 "port_wan": port_wan,
+                "sfc_quota": sfc_quota,
             }
                 
         except Exception as e:

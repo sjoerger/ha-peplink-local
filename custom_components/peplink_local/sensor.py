@@ -23,6 +23,7 @@ from homeassistant.const import (
     REVOLUTIONS_PER_MINUTE,
     UnitOfTemperature,
     UnitOfDataRate,
+    UnitOfInformation,
     UnitOfTime,
     UnitOfLength,
     UnitOfSpeed,
@@ -498,7 +499,10 @@ async def async_setup_entry(
 
     # Build parent device per unique profile_id.
     # profileId >= 60000 is a virtual SFC profile; lower IDs are real PepVPN profiles.
+    # SFC profiles use a stable "_sfc" identifier so the device persists even when no
+    # tunnels are active and the quota sensors always have a home.
     _pepvpn_parent_devices: dict[str, DeviceInfo] = {}
+    _pepvpn_parent_device_ids: dict[str, str] = {}
     for peer in pepvpn_peers:
         pid = peer.get("profile_id", "")
         if pid and pid not in _pepvpn_parent_devices:
@@ -506,8 +510,14 @@ async def async_setup_entry(
                 is_sfc = int(pid) >= 60000
             except ValueError:
                 is_sfc = False
+            parent_id = (
+                f"{coordinator.config_entry.entry_id}_sfc"
+                if is_sfc
+                else f"{coordinator.config_entry.entry_id}_pepvpn_profile_{pid}"
+            )
+            _pepvpn_parent_device_ids[pid] = parent_id
             _pepvpn_parent_devices[pid] = DeviceInfo(
-                identifiers={(DOMAIN, f"{coordinator.config_entry.entry_id}_pepvpn_profile_{pid}")},
+                identifiers={(DOMAIN, parent_id)},
                 manufacturer="Peplink",
                 model="SpeedFusion Connect" if is_sfc else "SpeedFusion VPN Profile",
                 name=f"{device_name_prefix} SpeedFusion Connect" if is_sfc else f"{device_name_prefix} VPN Profile {pid}",
@@ -525,7 +535,7 @@ async def async_setup_entry(
             manufacturer="Peplink",
             model="SpeedFusion Connect Peer",
             name=f"{device_name_prefix} {peer_name}",
-            via_device=(DOMAIN, f"{coordinator.config_entry.entry_id}_pepvpn_profile_{profile_id}") if parent_device else (DOMAIN, coordinator.config_entry.entry_id),
+            via_device=(DOMAIN, _pepvpn_parent_device_ids[profile_id]) if parent_device else (DOMAIN, coordinator.config_entry.entry_id),
         )
 
         for key, name, icon in [
@@ -679,6 +689,22 @@ async def async_setup_entry(
             present_bands.add(band)
     for band in present_bands:
         entities.append(BandAvgRssiSensor(coordinator, band, router_device))
+
+    # Add SFC data allowance sensors (only when device has an active SFC profile).
+    # Always use the stable _sfc sub-device so the sensors persist when no tunnels are active.
+    sfc_quota = coordinator.data.get("sfc_quota", {})
+    if sfc_quota.get("has_profile") and sfc_quota.get("quota_mb") is not None:
+        sfc_device = DeviceInfo(
+            identifiers={(DOMAIN, f"{coordinator.config_entry.entry_id}_sfc")},
+            manufacturer="Peplink",
+            model="SpeedFusion Connect",
+            name=f"{device_name_prefix} SpeedFusion Connect",
+            via_device=(DOMAIN, coordinator.config_entry.entry_id),
+        )
+        entities.extend([
+            SfcDataAllowanceSensor(coordinator, sfc_device),
+            SfcExpiryDateSensor(coordinator, sfc_device),
+        ])
 
     # Add all entities
     async_add_entities(entities)
@@ -1431,3 +1457,62 @@ class BandAvgRssiSensor(CoordinatorEntity, SensorEntity):
     @property
     def available(self) -> bool:
         return self.coordinator.last_update_success
+
+
+class SfcDataAllowanceSensor(CoordinatorEntity, SensorEntity):
+    """Remaining SpeedFusion Connect data allowance in GB."""
+
+    _attr_has_entity_name = True
+    _attr_name = "SFC Data Allowance"
+    _attr_native_unit_of_measurement = UnitOfInformation.GIGABYTES
+    _attr_device_class = SensorDeviceClass.DATA_SIZE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:cloud-upload"
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, coordinator, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_sfc_data_allowance"
+        self._attr_device_info = device_info
+
+    def _sfc(self) -> dict:
+        return self.coordinator.data.get("sfc_quota", {})
+
+    @property
+    def native_value(self) -> float | None:
+        mb = self._sfc().get("quota_mb")
+        if mb is None:
+            return None
+        return round(mb / 1024, 2)
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.last_update_success and self._sfc().get("quota_mb") is not None
+
+
+class SfcExpiryDateSensor(CoordinatorEntity, SensorEntity):
+    """SpeedFusion Connect subscription expiry date."""
+
+    _attr_has_entity_name = True
+    _attr_name = "SFC Expiry Date"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_icon = "mdi:calendar-clock"
+
+    def __init__(self, coordinator, device_info: DeviceInfo) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_sfc_expiry_date"
+        self._attr_device_info = device_info
+
+    def _sfc(self) -> dict:
+        return self.coordinator.data.get("sfc_quota", {})
+
+    @property
+    def native_value(self) -> datetime.datetime | None:
+        expiry = self._sfc().get("expiry")
+        if expiry is None:
+            return None
+        return datetime.datetime.fromtimestamp(expiry, tz=datetime.timezone.utc)
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.last_update_success and self._sfc().get("expiry") is not None
