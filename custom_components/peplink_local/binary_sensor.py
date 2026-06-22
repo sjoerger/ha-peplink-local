@@ -92,8 +92,10 @@ async def async_setup_entry(
     pepvpn_peers = pepvpn_status.get("peers", [])
     device_name_prefix = coordinator.device_name or f"Peplink {coordinator.host}"
 
-    # Build parent device per unique profile_id and add an aggregate connected sensor to each
+    # Build parent device per unique profile_id and add an aggregate connected sensor to each.
+    # SFC profiles use a stable "_sfc" identifier shared with sensor.py.
     _pepvpn_parent_devices: dict[str, DeviceInfo] = {}
+    _pepvpn_parent_device_ids: dict[str, str] = {}
     for peer in pepvpn_peers:
         pid = peer.get("profile_id", "")
         if pid and pid not in _pepvpn_parent_devices:
@@ -101,8 +103,14 @@ async def async_setup_entry(
                 is_sfc = int(pid) >= 60000
             except ValueError:
                 is_sfc = False
+            parent_id = (
+                f"{coordinator.config_entry.entry_id}_sfc"
+                if is_sfc
+                else f"{coordinator.config_entry.entry_id}_pepvpn_profile_{pid}"
+            )
+            _pepvpn_parent_device_ids[pid] = parent_id
             parent_device = DeviceInfo(
-                identifiers={(DOMAIN, f"{coordinator.config_entry.entry_id}_pepvpn_profile_{pid}")},
+                identifiers={(DOMAIN, parent_id)},
                 manufacturer="Peplink",
                 model="SpeedFusion Connect" if is_sfc else "SpeedFusion VPN Profile",
                 name=f"{device_name_prefix} SpeedFusion Connect" if is_sfc else f"{device_name_prefix} VPN Profile {pid}",
@@ -126,7 +134,7 @@ async def async_setup_entry(
             manufacturer="Peplink",
             model="SpeedFusion Connect Peer",
             name=f"{device_name_prefix} {peer_name}",
-            via_device=(DOMAIN, f"{coordinator.config_entry.entry_id}_pepvpn_profile_{profile_id}"),
+            via_device=(DOMAIN, _pepvpn_parent_device_ids[profile_id]),
         )
         entities.append(
             PeplinkPepVPNPeerBinarySensor(
