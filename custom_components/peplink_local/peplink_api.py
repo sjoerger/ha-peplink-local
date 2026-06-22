@@ -1252,6 +1252,14 @@ class PeplinkAPI:
         )
         if response.get("stat") != "ok":
             return False
+        # Verify the router echoed back the expected enable value.
+        echoed = response.get("response", {}).get(str(profile_id), {})
+        if echoed.get("enable") != enable:
+            _LOGGER.warning(
+                "SFC profile %s enable mismatch: expected %s, got %s",
+                profile_id, enable, echoed.get("enable"),
+            )
+            return False
         # Apply the staged config to the running system.
         session = await self._get_session()
         headers = {}
