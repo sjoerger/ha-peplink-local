@@ -1243,12 +1243,30 @@ class PeplinkAPI:
         Two-step: write the staged config, then apply it via admin.cgi so the
         change takes effect on the running tunnel without requiring a manual
         'Apply Changes' click in the web UI.
+
+        A sparse replace (enable field only) clears the InControl-assigned
+        profile name.  We must include all current fields in the payload so
+        the API preserves the name.  The name field itself is read-only and
+        must be omitted from the POST.
         """
+        # Fetch the current profile to build a complete replace payload.
+        current = await self.get_sfc_profile()
+        profile = current.get(profile_id)
+        if profile is None:
+            _LOGGER.warning("SFC profile %s not found", profile_id)
+            return False
+
+        # Build payload from current fields, overriding enable.  Drop 'name'
+        # and any meta keys — the API rejects 'name' and ignores the rest.
+        payload = {k: v for k, v in profile.items() if k not in ("name",)}
+        payload["id"] = profile_id
+        payload["enable"] = enable
+
         response = await self._make_api_request(
             "config.speedfusionConnectProtect.profile",
             method="POST",
             public_api=False,
-            data={"action": "replace", "list": [{"id": profile_id, "enable": enable}]},
+            data={"action": "replace", "list": [payload]},
         )
         if response.get("stat") != "ok":
             return False
