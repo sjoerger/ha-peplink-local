@@ -84,12 +84,17 @@ async def async_setup_entry(
     }
 
     # Restore long-term offline Wi-Fi clients from the entity registry.
+    # Skip MAC-formatted original_names: those are legacy entities from before
+    # client_name was available. If a name-keyed entity now exists for the same
+    # device, restoring the MAC entity would create a permanent orphan that
+    # never appears in wifi_current_names and is thus never cleaned up.
     wifi_offline_names = {
         e.original_name
         for e in pre_existing
         if e.domain == "device_tracker"
         and e.unique_id.startswith(wifi_prefix)
         and e.original_name
+        and ":" not in e.original_name
         and e.original_name not in wifi_current_names
     }
 
