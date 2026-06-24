@@ -1219,6 +1219,83 @@ class PeplinkAPI:
             "has_profile": data.get("has_sfc_profile", False),
         }
 
+    async def get_sfc_profile(self) -> dict[str, Any]:
+        """Fetch SFC profile configuration (enable state, city code, etc.).
+
+        Returns a dict of profile_id (int) -> profile_data, or {} on failure.
+        Only available when sfwan_local_configuration is supported.
+        """
+        response = await self._make_api_request(
+            "config.speedfusionConnectProtect.profile",
+            public_api=False,
+        )
+        if response.get("stat") != "ok":
+            return {}
+        resp = response.get("response", {})
+        return {
+            int(k): v for k, v in resp.items()
+            if k not in ("order", "reference")
+        }
+
+    async def set_sfc_profile_enable(self, profile_id: int, enable: bool) -> bool:
+        """Enable or disable an SFC profile by ID.
+
+        Two-step: write the staged config, then apply it via admin.cgi so the
+        change takes effect on the running tunnel without requiring a manual
+        'Apply Changes' click in the web UI.
+
+        A sparse replace (enable field only) clears the InControl-assigned
+        profile name.  We must include all current fields in the payload so
+        the API preserves the name.  The name field itself is read-only and
+        must be omitted from the POST.
+        """
+        # Fetch the current profile to build a complete replace payload.
+        current = await self.get_sfc_profile()
+        profile = current.get(profile_id)
+        if profile is None:
+            _LOGGER.warning("SFC profile %s not found", profile_id)
+            return False
+
+        # Build payload from current fields, overriding enable.  Drop 'name'
+        # and any meta keys — the API rejects 'name' and ignores the rest.
+        payload = {k: v for k, v in profile.items() if k not in ("name",)}
+        payload["id"] = profile_id
+        payload["enable"] = enable
+
+        response = await self._make_api_request(
+            "config.speedfusionConnectProtect.profile",
+            method="POST",
+            public_api=False,
+            data={"action": "replace", "list": [payload]},
+        )
+        if response.get("stat") != "ok":
+            return False
+        # Verify the router echoed back the expected enable value.
+        echoed = response.get("response", {}).get(str(profile_id), {})
+        if echoed.get("enable") != enable:
+            _LOGGER.warning(
+                "SFC profile %s enable mismatch: expected %s, got %s",
+                profile_id, enable, echoed.get("enable"),
+            )
+            return False
+        # Apply the staged config to the running system.
+        session = await self._get_session()
+        headers = {}
+        if self._auth_cookie:
+            headers["Cookie"] = f"bauth={self._auth_cookie}"
+        url = f"{self.base_url}/cgi-bin/MANGA/admin.cgi"
+        try:
+            async with session.post(
+                url,
+                data={"section": "MVPN_site", "site_id": profile_id},
+                headers=headers,
+            ) as resp:
+                text = await resp.text()
+                return "<status>1</status>" in text
+        except Exception as err:
+            _LOGGER.debug("SFC profile apply failed: %s", err)
+            return False
+
     async def close(self) -> None:
         """Close the session if we created it."""
         if self._own_session and self._session is not None:

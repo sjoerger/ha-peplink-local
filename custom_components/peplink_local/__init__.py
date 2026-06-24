@@ -206,6 +206,7 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.api.get_port_lan_status(),
                 self.api.get_port_wan_status(),
                 self.api.get_sfc_quota(),
+                self.api.get_sfc_profile(),
                 return_exceptions=True,
             )
 
@@ -279,6 +280,11 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if isinstance(sfc_quota, Exception):
                 _LOGGER.debug("SFC quota unavailable: %s", sfc_quota)
                 sfc_quota = {}
+
+            sfc_profile = results[18]
+            if isinstance(sfc_profile, Exception):
+                _LOGGER.debug("SFC profile unavailable: %s", sfc_profile)
+                sfc_profile = {}
 
             # Unpack results
             wan_status, clients, system_info, traffic_stats, location_info = results[:5]
@@ -362,6 +368,7 @@ class PeplinkDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "port_lan": port_lan,
                 "port_wan": port_wan,
                 "sfc_quota": sfc_quota,
+                "sfc_profile": sfc_profile,
             }
                 
         except Exception as e:
